@@ -20,25 +20,10 @@ public class fibaMain {
 	 * @param args
 	 */
 	public static void main(String[] args) {
-		int switchCase = 2; //default
-		int displayType = 1; //default
-		if(args.length == 1){
-			switchCase = Integer.parseInt(args[0]);
-		} else if(args.length == 2){
-			switchCase = Integer.parseInt(args[0]);
-			displayType = Integer.parseInt(args[1]);
-		} else{
-			System.out.println("Usage: java fiba " + "CaseNumber DisplayType");
-			System.out.println("CaseNumber from 0 to 13 (Inclusive)");
-			System.out.println("DisplayType from 0 to 2 (Inclusive)");
-			System.out.println("Running Case " + switchCase + " by default.");
-			System.out.println("Running DisplayType " + displayType + " by default");
-		}//end else statement
-		//CreateArray of test data
-		int rows = 41;
-		int cols = 41;
-		//get a test surface in the spatial domain
-		double[][] spatialData = getSpatialData(switchCase,rows,cols);
+		// Minimal launcher for ImageJ when running from an IDE.
+		// (The actual plugin entry point is fftanalysis.imagej.FIBA_Orientation.)
+		new ImageJ();
+		IJ.log("ImageJ started. Open an image and run Plugins > FIBA_Orientation.");
 
 	}
 

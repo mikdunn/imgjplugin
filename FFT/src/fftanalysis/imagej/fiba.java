@@ -155,11 +155,7 @@ public class fiba {
 		// Square Regions of interest
 				
 			}
-	
-	public static void main(String[] args) {
-		fiba x = new fiba();
-		
-		x.xform2D();
-	}
+	// NOTE: This class is legacy (pre-FFT) code and is not used by the ImageJ
+	// plugin implementation. It is kept for reference and must remain compilable.
 
 }

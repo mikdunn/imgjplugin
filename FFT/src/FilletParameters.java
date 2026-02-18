@@ -1,7 +1,5 @@
 package shapingfunctions.library;
 
-import processing.core.PApplet;
-
 public class FilletParameters {
 	private float arcStartAngle;
 	private float arcEndAngle;
@@ -19,7 +17,7 @@ public class FilletParameters {
 		// Return signed distance from line Ax + By + C = 0 to point P.
 
 		float lp = 0.0f;
-		float d = PApplet.sqrt((a * a) + (b * b));
+		float d = (float) Math.sqrt((a * a) + (b * b));
 		if (Float.compare(d, 0) != 0) {
 			lp = (a * ptx + b * pty + c) / d;
 		}
@@ -62,12 +60,12 @@ public class FilletParameters {
 		if (Float.compare(d1, 0) <= 0) {
 			rr = -rr;
 		}
-		c1p = c1 - rr * PApplet.sqrt((a1 * a1) + (b1 * b1)); /* Line parallel l1 at d */
+		c1p = c1 - rr * (float) Math.sqrt((a1 * a1) + (b1 * b1)); /* Line parallel l1 at d */
 		rr = r;
 		if (Float.compare(d2, 0) <= 0) {
 			rr = -rr;
 		}
-		c2p = c2 - rr * PApplet.sqrt((a2 * a2) + (b2 * b2)); /* Line parallel l2 at d */
+		c2p = c2 - rr * (float) Math.sqrt((a2 * a2) + (b2 * b2)); /* Line parallel l2 at d */
 		d = (a1 * b2) - (a2 * b1);
 
 		float pCx = (c2p * b1 - c1p * b2) / d; /* Intersect constructed lines */
@@ -96,12 +94,12 @@ public class FilletParameters {
 		float gv2x = pBx - pCx;
 		float gv2y = pBy - pCy;
 
-		float arcStart = (float) PApplet.atan2(gv1y, gv1x);
+		float arcStart = (float) Math.atan2(gv1y, gv1x);
 		float arcAngle = 0.0f;
-		float dd = (float) PApplet.sqrt(((gv1x * gv1x) + (gv1y * gv1y))
+		float dd = (float) Math.sqrt(((gv1x * gv1x) + (gv1y * gv1y))
 				* ((gv2x * gv2x) + (gv2y * gv2y)));
 		if (Float.compare(dd, 0) != 0) {
-			arcAngle = (PApplet.acos((gv1x * gv2x + gv1y * gv2y) / dd));
+			arcAngle = (float) Math.acos((gv1x * gv2x + gv1y * gv2y) / dd);
 		}
 		float crossProduct = (gv1x * gv2y - gv2x * gv1y);
 		if (crossProduct < 0.0) {
@@ -120,10 +118,10 @@ public class FilletParameters {
 		arcStartAngle = arc1;
 		arcEndAngle = arc2;
 		arcRadius = r;
-		arcStartX = arcCenterX + arcRadius * PApplet.cos(arcStartAngle);
-		arcStartY = arcCenterY + arcRadius * PApplet.sin(arcStartAngle);
-		arcEndX = arcCenterX + arcRadius * PApplet.cos(arcEndAngle);
-		arcEndY = arcCenterY + arcRadius * PApplet.sin(arcEndAngle);
+		arcStartX = arcCenterX + arcRadius * (float) Math.cos(arcStartAngle);
+		arcStartY = arcCenterY + arcRadius * (float) Math.sin(arcStartAngle);
+		arcEndX = arcCenterX + arcRadius * (float) Math.cos(arcEndAngle);
+		arcEndY = arcCenterY + arcRadius * (float) Math.sin(arcEndAngle);
 	}
 	
 	public float getArcStartAngle() {

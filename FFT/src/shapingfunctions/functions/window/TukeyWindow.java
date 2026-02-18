@@ -8,8 +8,6 @@ import java.awt.image.*;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.util.*;
-import processing.core.PApplet;
-import processing.core.PConstants;
 import shapingfunctions.library.Function;
 
 
@@ -35,10 +33,10 @@ public class TukeyWindow extends Function {
 		float y = 1.0f;
 		
 		if (Float.compare(x, ah) <= 0){
-			y = 0.5f * (1.0f + PApplet.cos(PConstants.PI * ((2*x / alpha) - 1.0f)));
+			y = 0.5f * (1.0f + (float) Math.cos(Math.PI * ((2*x / alpha) - 1.0f)));
 		}
 		else if (x > omah){
-			y = 0.5f * (1.0f + PApplet.cos(PConstants.PI * ((2*x / alpha) - (2.0f/alpha) + 1.0f)));
+			y = 0.5f * (1.0f + (float) Math.cos(Math.PI * ((2*x / alpha) - (2.0f/alpha) + 1.0f)));
 
 		}
 		

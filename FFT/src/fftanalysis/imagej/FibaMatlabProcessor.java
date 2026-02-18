@@ -1,0 +1,886 @@
+package fftanalysis.imagej;
+
+import org.jtransforms.fft.DoubleFFT_2D;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * MATLAB-faithful implementation of the core logic from fiba.m:
+ * <ul>
+ *   <li>imadjust + Tukey window on the input image</li>
+ *   <li>2D FFT + fftshift magnitude</li>
+ *   <li>orientation signal extraction SOL(theta)</li>
+ *   <li>statistically significant peak detection + weighted median peak angle</li>
+ *   <li>band-limited inverse FFT reconstruction with blended mask edges</li>
+ * </ul>
+ *
+ * This class intentionally uses plain double arrays so it can be used from
+ * ImageJ UI code, batch processing, tests, etc.
+ */
+public final class FibaMatlabProcessor {
+
+    private FibaMatlabProcessor() {
+    }
+
+    public static final class Params {
+        /** inner radius of usable frequency band */
+        public int rmin = 4;
+        /** outer radius of usable frequency band; if <= 0, defaults to w-1 */
+        public int rmax = -1;
+
+        /** size of Tukey window on original sample */
+        public double alpha = 0.4;
+        /** size of Tukey window on FFT result (r-direction) */
+        public double beta = 0.3;
+        /** size of Tukey window on FFT result (theta-direction) */
+        public double gamma = 0.3;
+
+        /** expected image is square; if not, caller should crop first */
+        public boolean requireSquare = true;
+    }
+
+    public static final class Result {
+        /** N = 2*w (image side length) */
+        public int n;
+        public int w;
+
+        /** orientation signal, length 180, angles 0..179 */
+        public double[] sol;
+        public double meanSol;
+        public double stdSol;
+
+        /** Weighted-average peak fiber angle (0..179), matching fiba.m */
+        public int pAng;
+        /** 1 if there might be more than one peak */
+        public int warnPk;
+
+        /** statistically significant peak width (deg) */
+        public int spWid;
+        /** peak strength (0..1), i.e., BandH in MATLAB */
+        public double bandStrength;
+        /** 30% peak bandwidth in degrees */
+        public int pWidth;
+
+        /** peak boundary angles in [0,179] for reconstruction; may wrap */
+        public int ang1;
+        public int ang2;
+
+        /** indices (angles) used for highlighting reconstructed band on plot */
+        public int[] aind1;
+        public int[] aind2;
+
+        /** display panels (all scaled to 0..1) */
+        public double[][] origNorm;
+        public double[][] imgS;
+        public double[][] imgFDisp;
+        public double[][] imgR2;
+        public double[][][] overlay;
+    }
+
+    /**
+     * Run the full algorithm on a square grayscale image.
+     *
+     * @param j input image intensities (N x N)
+     */
+    public static Result process(double[][] j, Params params) {
+        if (j == null || j.length == 0 || j[0].length == 0) {
+            throw new IllegalArgumentException("Input image is empty");
+        }
+        final int n = j.length;
+        final int m = j[0].length;
+        if (params.requireSquare && n != m) {
+            throw new IllegalArgumentException("Input image must be square (got " + n + "x" + m + ")");
+        }
+
+        final Result out = new Result();
+        out.n = n;
+        out.w = n / 2;
+
+        final int w = out.w;
+        final int rmin = Math.max(0, params.rmin);
+        final int rmax = (params.rmax > 0) ? params.rmax : (w - 1);
+        if (rmax <= rmin) {
+            throw new IllegalArgumentException("rmax must be > rmin");
+        }
+
+        // ======================= Step I: FFT2 Analysis =====================
+        // MATLAB: J1 = imadjust(J)
+        final double[][] j1 = imadjustStretch01(j, 0.01);
+
+        final double avgJ = mean(j1);
+
+        // MATLAB: generate edge blending (Tukey window)
+        final double[] s = tukeyEdgeVector(n, w, params.alpha);
+        final double[][] imgS = new double[n][n];
+        double maxImgS = 0;
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                final double S = s[row] * s[col];
+                final double v = S * (j1[row][col] - avgJ) + avgJ;
+                imgS[row][col] = v;
+                if (v > maxImgS) maxImgS = v;
+            }
+        }
+        if (maxImgS <= 0) maxImgS = 1;
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                imgS[row][col] /= maxImgS;
+            }
+        }
+        out.imgS = imgS;
+
+        // MATLAB: K = fft2(ImgS)
+        final DoubleFFT_2D fft2 = new DoubleFFT_2D(n, n);
+        final double[][] K = new double[n][2 * n];
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                K[row][2 * col] = imgS[row][col];
+                K[row][2 * col + 1] = 0;
+            }
+        }
+        fft2.realForwardFull(K);
+
+        final double[][] amp = new double[n][n];
+        final double[][] phase = new double[n][n];
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                final double re = K[row][2 * col];
+                final double im = K[row][2 * col + 1];
+                amp[row][col] = Math.hypot(re, im);
+                phase[row][col] = Math.atan2(im, re);
+            }
+        }
+        // MATLAB: ImgF = fftshift(abs(K))
+        final double[][] imgF = fftShift(amp);
+
+        // Display: (ImgF.^0.2)/max(max(ImgF.^0.2))
+        final double[][] imgFDisp = new double[n][n];
+        double maxF = 0;
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                final double v = Math.pow(imgF[row][col], 0.2);
+                imgFDisp[row][col] = v;
+                if (v > maxF) maxF = v;
+            }
+        }
+        if (maxF <= 0) maxF = 1;
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                imgFDisp[row][col] /= maxF;
+            }
+        }
+        out.imgFDisp = imgFDisp;
+
+        // MATLAB: original normalized as double(J)/max
+        out.origNorm = normalizeByMax(j);
+
+        // ====================== Step II: Data Analysis =====================
+        // Extract orientation data as in imfft() in MATLAB.
+        final double[] B = extractOrientationSignal(imgF, w, rmin, rmax);
+        final double sumB = sum(B);
+        final double[] sol = new double[180];
+        for (int t = 0; t < 90; t++) {
+            sol[t] = B[t + 90] / sumB;
+        }
+        for (int t = 90; t < 180; t++) {
+            sol[t] = B[t - 90] / sumB;
+        }
+        out.sol = sol;
+        out.meanSol = mean(sol);
+        out.stdSol = std(sol, out.meanSol);
+
+        // Identify statistically significant peak following MATLAB logic.
+        final PeakInfo peak = findPeak(sol, out.meanSol, out.stdSol);
+        out.pAng = peak.pAng;
+        out.warnPk = peak.warnPk;
+        out.spWid = peak.spWid;
+        out.bandStrength = peak.bandStrength;
+        out.pWidth = peak.pWidth;
+        out.ang1 = peak.ang1;
+        out.ang2 = peak.ang2;
+
+        // ================= Step III: Inverse FFT2 Reconstruction ===========
+        final Reconstruction recon = reconstruct(j1, imgS, imgF, phase, w, rmin, rmax,
+                params.beta, params.gamma, out.ang1, out.ang2);
+        out.imgR2 = recon.imgR2;
+        out.overlay = recon.overlay;
+        out.aind1 = recon.aind1;
+        out.aind2 = recon.aind2;
+
+        return out;
+    }
+
+    // ---------------------------------------------------------------------
+    // Orientation extraction
+    // ---------------------------------------------------------------------
+
+    private static double[] extractOrientationSignal(double[][] imgFShifted, int w, int rmin, int rmax) {
+        // MATLAB code builds A(i,j) for i=1..w-1, j=1..180 with bilinear sampling.
+        // Note MATLAB uses ImgF(xmin, ymin) with x computed from cos and y from sin.
+        // We mimic that indexing by treating the first index as x (row), second as y (col).
+        final double[] B = new double[180];
+
+        final int maxR = Math.min(w - 2, rmax - 1);
+        final int minR = Math.max(0, rmin);
+
+        for (int thetaDeg = 0; thetaDeg < 180; thetaDeg++) {
+            double sum = 0;
+            final double theta = Math.toRadians(thetaDeg);
+            for (int r = minR; r <= maxR; r++) {
+
+                final double x = r * Math.cos(theta) + w; // 0-based center
+                final double y = r * Math.sin(theta) + w;
+
+                final double v = bilinearSampleXY(imgFShifted, x, y);
+                sum += v;
+            }
+            B[thetaDeg] = sum;
+        }
+
+        return B;
+    }
+
+    private static double bilinearSampleXY(double[][] img, double xRow, double yCol) {
+        final int nRows = img.length;
+        final int nCols = img[0].length;
+
+        int x0 = (int) Math.floor(xRow);
+        int x1 = (int) Math.ceil(xRow);
+        int y0 = (int) Math.floor(yCol);
+        int y1 = (int) Math.ceil(yCol);
+
+        // Clamp to bounds to avoid out-of-range (MATLAB indexing implicitly assumes in-range)
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 >= nRows) x1 = nRows - 1;
+        if (y1 >= nCols) y1 = nCols - 1;
+
+        final double dx = xRow - x0;
+        final double dy = yCol - y0;
+
+        final double v00 = img[x0][y0];
+        final double v10 = img[x1][y0];
+        final double v01 = img[x0][y1];
+        final double v11 = img[x1][y1];
+
+        return (1 - dx) * (1 - dy) * v00
+                + dx * (1 - dy) * v10
+                + (1 - dx) * dy * v01
+                + dx * dy * v11;
+    }
+
+    private static final class PeakInfo {
+        int pAng;
+        int warnPk;
+        int spWid;
+        double bandStrength;
+        int pWidth;
+        int ang1;
+        int ang2;
+    }
+
+    private static PeakInfo findPeak(double[] sol, double mean, double std) {
+        // MATLAB:
+        // SOL3 = [SOL SOL SOL]
+        // peakbd = find(SOL3 > (mSOL + stdSOL))
+        // [~, peakid] = max(SOL3)
+        // ind = find(peakbd == peakid) + length(peakbd)/3
+        // find contiguous bounds around that position
+        // index = [peakbd(peakl) peakbd(peakr)]
+        // weighted-median angle within the peak band
+
+        final double[] sol3 = new double[180 * 3];
+        for (int i = 0; i < sol3.length; i++) sol3[i] = sol[i % 180];
+
+        final double thresh = mean + std;
+        final List<Integer> peakbd = new ArrayList<Integer>();
+        for (int i = 0; i < sol3.length; i++) {
+            if (sol3[i] > thresh) peakbd.add(i);
+        }
+
+        // If nothing exceeds threshold, fall back to global max as a 1-degree peak.
+        int peakId = 0;
+        double best = sol3[0];
+        for (int i = 1; i < sol3.length; i++) {
+            if (sol3[i] > best) {
+                best = sol3[i];
+                peakId = i;
+            }
+        }
+
+        int indInPeakbd = -1;
+        for (int i = 0; i < peakbd.size(); i++) {
+            if (peakbd.get(i) == peakId) {
+                indInPeakbd = i;
+                break;
+            }
+        }
+
+        // If the peak itself isn't above threshold, treat the peak as a single point.
+        int leftIdx = peakId;
+        int rightIdx = peakId;
+        int warnPk = 0;
+
+        if (!peakbd.isEmpty() && indInPeakbd >= 0) {
+            // MATLAB's "+ length(peakbd)/3" biases selection to the middle segment.
+            final int biasedIndex = indInPeakbd + (peakbd.size() / 3);
+            final int centerPos = Math.min(Math.max(biasedIndex, 0), peakbd.size() - 1);
+
+            // Scan right for break
+            int r = centerPos;
+            while (r + 1 < peakbd.size() && peakbd.get(r + 1) - peakbd.get(r) == 1) r++;
+            // Scan left for break
+            int l = centerPos;
+            while (l - 1 >= 0 && peakbd.get(l) - peakbd.get(l - 1) == 1) l--;
+
+            leftIdx = peakbd.get(l);
+            rightIdx = peakbd.get(r);
+
+            // MATLAB warning heuristic
+            final int peakWidth = (rightIdx - leftIdx + 1);
+            if (peakWidth < peakbd.size() / 3) {
+                warnPk = 1;
+            }
+        }
+
+        final PeakInfo out = new PeakInfo();
+        out.warnPk = warnPk;
+
+        // Weighted-median within the band
+        double bandH = 0;
+        for (int i = leftIdx; i <= rightIdx; i++) bandH += sol3[i];
+        if (bandH <= 0) bandH = 1;
+
+        double bandS = 0;
+        int pAng = 0;
+        for (int i = leftIdx; i <= rightIdx; i++) {
+            bandS += sol3[i] / bandH;
+            if (bandS >= 0.5) {
+                // 0-based equivalent of MATLAB's index - 180 - 1 (1-based)
+                pAng = i - 180;
+                break;
+            }
+        }
+
+        // Peak boundary angles for reconstruction (MATLAB: ang = index - 180)
+        int ang1 = leftIdx - 180;
+        int ang2 = rightIdx - 180;
+        final int spWid = ang2 - ang1 + 1;
+
+        // 30% bandwidth around pAng
+        // MATLAB uses SOL3(pAng-i+180 : pAng+i+180)
+        int pWidth = 0;
+        for (int i = 1; i <= 90; i++) {
+            final int center = pAng + 180;
+            final int lo = Math.max(0, center - i);
+            final int hi = Math.min(sol3.length - 1, center + i);
+            double band = 0;
+            for (int k = lo; k <= hi; k++) band += sol3[k];
+            if (band >= 0.3) {
+                pWidth = 2 * (i - 1);
+                break;
+            }
+        }
+
+        // Fold pAng into [0,179]
+        while (pAng < 0) pAng += 180;
+        while (pAng >= 180) pAng -= 180;
+
+        // Fold reconstruction bounds into [0,179] but preserve wrap
+        if (ang1 < 0) ang1 += 180;
+        if (ang2 >= 180) ang2 -= 180;
+
+        out.pAng = pAng;
+        out.spWid = spWid;
+        out.bandStrength = bandH;
+        out.pWidth = pWidth;
+        out.ang1 = ang1;
+        out.ang2 = ang2;
+        return out;
+    }
+
+    // ---------------------------------------------------------------------
+    // Reconstruction (inverse FFT)
+    // ---------------------------------------------------------------------
+
+    private static final class Reconstruction {
+        double[][] imgR2;
+        double[][][] overlay;
+        int[] aind1;
+        int[] aind2;
+    }
+
+        private static Reconstruction reconstruct(
+            double[][] jAdjusted01,
+            double[][] imgS,
+            double[][] imgFShifted,
+            double[][] phase,
+            int w,
+            int rmin,
+            int rmax,
+            double beta,
+            double gamma,
+            int ang1,
+            int ang2
+    ) {
+        final int n = imgS.length;
+        final int[] ainds = computeAinds(ang1, ang2);
+        final int[] aind1;
+        final int[] aind2;
+        aind1 = extractAind1(ang1, ang2);
+        aind2 = extractAind2(ang1, ang2);
+
+        final double[][] mask = buildReconstructionMask(n, w, rmin, rmax, beta, gamma, ang1, ang2);
+
+        // Apply mask in shifted domain, then inverse shift back.
+        final double[][] maskedShifted = new double[n][n];
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                maskedShifted[row][col] = imgFShifted[row][col] * mask[row][col];
+            }
+        }
+        final double[][] masked = fftShift(maskedShifted); // fftshift twice = inverse shift for even N
+
+        // Combine masked amplitude with original phase and inverse FFT.
+        final DoubleFFT_2D fft2 = new DoubleFFT_2D(n, n);
+        final double[][] complex = new double[n][2 * n];
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                final double a = masked[row][col];
+                final double ph = phase[row][col];
+                complex[row][2 * col] = a * Math.cos(ph);
+                complex[row][2 * col + 1] = a * Math.sin(ph);
+            }
+        }
+        fft2.complexInverse(complex, true);
+
+        final double[][] imgR1 = new double[n][n];
+        double min = Double.POSITIVE_INFINITY;
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                final double v = complex[row][2 * col];
+                imgR1[row][col] = v;
+                if (v < min) min = v;
+            }
+        }
+        // MATLAB: ImgR2 = imadjust((ImgR1-min(min(ImgR1))))
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                imgR1[row][col] -= min;
+            }
+        }
+        double[][] imgR2 = imadjustMinMax01(imgR1);
+
+        // MATLAB: ImgR2 = ImgR2.*ImgS
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                imgR2[row][col] *= imgS[row][col];
+            }
+        }
+        // MATLAB: ImgR2(ImgR2<mean(mean(ImgR2))*1.1) = 0;
+        final double meanR2 = mean(imgR2);
+        final double thr = meanR2 * 1.1;
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                if (imgR2[row][col] < thr) imgR2[row][col] = 0;
+            }
+        }
+
+        // Overlay: ImgS2(:,:,1) = imadjust(J)/255; ImgS2(:,:,2/3) = base - ImgR2
+        final double[][][] overlay = new double[n][n][3];
+        for (int row = 0; row < n; row++) {
+            for (int col = 0; col < n; col++) {
+                final double base = jAdjusted01[row][col];
+                overlay[row][col][0] = clamp01(base);
+                overlay[row][col][1] = clamp01(base - imgR2[row][col]);
+                overlay[row][col][2] = clamp01(base - imgR2[row][col]);
+            }
+        }
+
+        final Reconstruction out = new Reconstruction();
+        out.imgR2 = imgR2;
+        out.overlay = overlay;
+        out.aind1 = aind1;
+        out.aind2 = aind2;
+        return out;
+    }
+
+    // aind helpers (for plot highlighting)
+    private static int[] computeAinds(int ang1, int ang2) {
+        // kept for parity with MATLAB structure; actual arrays computed below
+        return new int[0];
+    }
+
+    private static int[] extractAind1(int ang1, int ang2) {
+        if (ang2 >= ang1) {
+            int len = (ang2 - ang1 + 1);
+            int[] a = new int[len];
+            for (int i = 0; i < len; i++) a[i] = (ang1 + i) + 1; // 1-based like MATLAB
+            return a;
+        }
+        // wrap case
+        int len = (ang2 + 1);
+        int[] a = new int[len];
+        for (int i = 0; i < len; i++) a[i] = i + 1;
+        return a;
+    }
+
+    private static int[] extractAind2(int ang1, int ang2) {
+        if (ang2 >= ang1) {
+            return new int[] { 0 };
+        }
+        int len = (179 - ang1 + 1);
+        int[] a = new int[len];
+        for (int i = 0; i < len; i++) a[i] = (ang1 + i) + 1;
+        return a;
+    }
+
+    private static double[][] buildReconstructionMask(
+            int n,
+            int w,
+            int rmin,
+            int rmax,
+            double beta,
+            double gamma,
+            int ang1,
+            int ang2
+    ) {
+        int ind = 0;
+        int a1 = ang1;
+        int a2 = ang2;
+        if (a2 < a1) {
+            a2 = a2 + 180;
+            ind = 1;
+        }
+
+        final int theta1 = a1 - 90;
+        final int theta2 = a2 - 90;
+
+        final double[][] maskA = new double[n][n];
+        final double[][] maskB = new double[n][n];
+
+        final double Rd = (rmax - rmin + 1);
+
+        // MATLAB computes bottom half then symmetrizes via rot90(...,2)
+        for (int i = w; i < n; i++) {
+            final double iOff = (i - w + 0.5);
+            for (int j = 0; j < n; j++) {
+                final double jOff = (j - w + 0.5);
+
+                final double R = Math.sqrt(jOff * jOff + iOff * iOff);
+                final double x = (R - rmin) / Rd;
+
+                // MATLAB: theta = atan((j-w-0.5)/(i-w-0.5))/pi*180
+                double theta = Math.toDegrees(Math.atan2(jOff, iOff));
+
+                // MaskA (radial Tukey)
+                if (x >= 0 && x <= (beta / 2.0)) {
+                    maskA[i][j] = 0.5 * (1.0 + Math.cos((2.0 * Math.PI / beta) * (x - beta / 2.0)));
+                } else if (x > (beta / 2.0) && x <= (1.0 - beta / 2.0)) {
+                    maskA[i][j] = 1.0;
+                } else if (x > (1.0 - beta / 2.0) && x <= 1.0) {
+                    maskA[i][j] = 0.5 * (1.0 + Math.cos((2.0 * Math.PI / beta) * (x - 1.0 + beta / 2.0)));
+                }
+
+                // MaskB (angular Tukey)
+                int th1;
+                int th2;
+                if (ind == 1) {
+                    th2 = theta2 - 90;
+                    th1 = theta1 - 90;
+                } else {
+                    th2 = theta2;
+                    th1 = theta1;
+                }
+
+                final double th = (theta - th1) / (double) (th2 - th1);
+                if (th >= 0 && th <= (gamma / 2.0)) {
+                    maskB[i][j] = 0.5 * (1.0 + Math.cos((2.0 * Math.PI / gamma) * (th - gamma / 2.0)));
+                } else if (th > (gamma / 2.0) && th <= (1.0 - gamma / 2.0)) {
+                    maskB[i][j] = 1.0;
+                } else if (th > (1.0 - gamma / 2.0) && th <= 1.0) {
+                    maskB[i][j] = 0.5 * (1.0 + Math.cos((2.0 * Math.PI / gamma) * (th - 1.0 + gamma / 2.0)));
+                }
+            }
+        }
+
+        final double[][] maskA2 = add(maskA, rotate180(maskA));
+        final double[][] maskB2 = add(maskB, rotate180(maskB));
+
+        final double[][] mask;
+        if (ind == 0) {
+            mask = multiply(maskA2, maskB2);
+        } else {
+            mask = multiply(maskA2, rotate90CCW(maskB2));
+        }
+
+        return mask;
+    }
+
+    // ---------------------------------------------------------------------
+    // Small numeric utilities (kept private to keep surface area small)
+    // ---------------------------------------------------------------------
+
+    private static double[][] normalizeByMax(double[][] in) {
+        final int n = in.length;
+        final int m = in[0].length;
+        double max = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                if (in[i][j] > max) max = in[i][j];
+            }
+        }
+        if (max <= 0) max = 1;
+        final double[][] out = new double[n][m];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                out[i][j] = in[i][j] / max;
+            }
+        }
+        return out;
+    }
+
+    private static double mean(double[][] a) {
+        double s = 0;
+        long c = 0;
+        for (int i = 0; i < a.length; i++) {
+            for (int j = 0; j < a[0].length; j++) {
+                s += a[i][j];
+                c++;
+            }
+        }
+        return (c == 0) ? 0 : s / c;
+    }
+
+    private static double mean(double[] a) {
+        double s = 0;
+        for (int i = 0; i < a.length; i++) s += a[i];
+        return (a.length == 0) ? 0 : s / a.length;
+    }
+
+    private static double std(double[] a, double mean) {
+        double s2 = 0;
+        for (int i = 0; i < a.length; i++) {
+            final double d = a[i] - mean;
+            s2 += d * d;
+        }
+        return (a.length <= 1) ? 0 : Math.sqrt(s2 / (a.length - 1));
+    }
+
+    private static double sum(double[] a) {
+        double s = 0;
+        for (int i = 0; i < a.length; i++) s += a[i];
+        return s;
+    }
+
+    private static double sum(double[][] a) {
+        double s = 0;
+        for (int i = 0; i < a.length; i++) {
+            for (int j = 0; j < a[0].length; j++) s += a[i][j];
+        }
+        return s;
+    }
+
+    private static double clamp01(double v) {
+        if (v < 0) return 0;
+        if (v > 1) return 1;
+        return v;
+    }
+
+    private static double[] tukeyEdgeVector(int n, int w, double alpha) {
+        // faithful to fiba.m (which is written in terms of w and 1-indexed i)
+        if (alpha <= 0) {
+            double[] s = new double[n];
+            for (int i = 0; i < n; i++) s[i] = 1;
+            return s;
+        }
+
+        final double[] s = new double[n];
+        for (int i1 = 1; i1 <= n; i1++) {
+            final double i = i1; // MATLAB-like
+            double v;
+            if (i <= alpha * w) {
+                v = 0.5 * (1.0 + Math.cos(Math.PI * (((i - 1.0) / alpha / w) - 1.0)));
+            } else if (i <= 2.0 * w * (1.0 - alpha / 2.0)) {
+                v = 1.0;
+            } else {
+                v = 0.5 * (1.0 + Math.cos(Math.PI * ((i / alpha / w) - (2.0 / alpha) - 1.0)));
+            }
+            s[i1 - 1] = v;
+        }
+        return s;
+    }
+
+    /**
+     * Approximation of MATLAB imadjust(I) for grayscale images: stretch contrast
+     * to [0,1] with a small saturation fraction.
+     */
+    private static double[][] imadjustStretch01(double[][] in, double saturateFraction) {
+        final int n = in.length;
+        final int m = in[0].length;
+        // Copy and find min/max first.
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                final double v = in[i][j];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+        }
+        if (!(max > min)) {
+            // constant image
+            final double[][] out = new double[n][m];
+            return out;
+        }
+
+        // A simple (and fast) robust stretch: clamp to percentile-like bounds
+        // computed from a coarse histogram.
+        final int bins = 1024;
+        final long[] hist = new long[bins];
+        final double scale = (bins - 1) / (max - min);
+        long total = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                int b = (int) ((in[i][j] - min) * scale);
+                if (b < 0) b = 0;
+                if (b >= bins) b = bins - 1;
+                hist[b]++;
+                total++;
+            }
+        }
+
+        final long cut = (long) Math.floor(total * saturateFraction);
+        long c = 0;
+        int loBin = 0;
+        for (int b = 0; b < bins; b++) {
+            c += hist[b];
+            if (c > cut) {
+                loBin = b;
+                break;
+            }
+        }
+        c = 0;
+        int hiBin = bins - 1;
+        for (int b = bins - 1; b >= 0; b--) {
+            c += hist[b];
+            if (c > cut) {
+                hiBin = b;
+                break;
+            }
+        }
+        if (hiBin <= loBin) {
+            loBin = 0;
+            hiBin = bins - 1;
+        }
+
+        final double lo = min + loBin / scale;
+        final double hi = min + hiBin / scale;
+        final double denom = (hi - lo);
+
+        final double[][] out = new double[n][m];
+        if (!(denom > 0)) {
+            return out;
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                double v = (in[i][j] - lo) / denom;
+                if (v < 0) v = 0;
+                if (v > 1) v = 1;
+                out[i][j] = v;
+            }
+        }
+        return out;
+    }
+
+    private static double[][] imadjustMinMax01(double[][] in) {
+        final int n = in.length;
+        final int m = in[0].length;
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                final double v = in[i][j];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+        }
+        if (!(max > min)) {
+            return new double[n][m];
+        }
+        final double denom = max - min;
+        final double[][] out = new double[n][m];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                out[i][j] = (in[i][j] - min) / denom;
+            }
+        }
+        return out;
+    }
+
+    private static double[][] fftShift(double[][] in) {
+        final int n = in.length;
+        final int m = in[0].length;
+        final double[][] out = new double[n][m];
+        final int hn = n / 2;
+        final int hm = m / 2;
+
+        for (int i = 0; i < n; i++) {
+            final int ii = (i + hn) % n;
+            for (int j = 0; j < m; j++) {
+                final int jj = (j + hm) % m;
+                out[ii][jj] = in[i][j];
+            }
+        }
+        return out;
+    }
+
+    private static double[][] rotate180(double[][] in) {
+        final int n = in.length;
+        final int m = in[0].length;
+        final double[][] out = new double[n][m];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                out[n - 1 - i][m - 1 - j] = in[i][j];
+            }
+        }
+        return out;
+    }
+
+    private static double[][] rotate90CCW(double[][] in) {
+        final int n = in.length;
+        final int m = in[0].length;
+        final double[][] out = new double[m][n];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                out[m - 1 - j][i] = in[i][j];
+            }
+        }
+        return out;
+    }
+
+    private static double[][] add(double[][] a, double[][] b) {
+        final int n = a.length;
+        final int m = a[0].length;
+        final double[][] out = new double[n][m];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                out[i][j] = a[i][j] + b[i][j];
+            }
+        }
+        return out;
+    }
+
+    private static double[][] multiply(double[][] a, double[][] b) {
+        final int n = a.length;
+        final int m = a[0].length;
+        final double[][] out = new double[n][m];
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                out[i][j] = a[i][j] * b[i][j];
+            }
+        }
+        return out;
+    }
+}
