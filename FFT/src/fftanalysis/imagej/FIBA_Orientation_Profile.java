@@ -14,6 +14,7 @@ import ij.process.FloatProcessor;
 import ij.process.ImageProcessor;
 
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.GraphicsEnvironment;
 import java.io.File;
 import java.io.FileWriter;
@@ -52,6 +53,9 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         outOpts.overlayOnOriginal = true;
         outOpts.exportSOL = true;
         outOpts.wrap90 = true;
+        outOpts.drawTileBoxes = true;
+        outOpts.labelTileBoxes = false;
+        outOpts.boxLineWidth = 1;
 
         TileOptions tileOpts = new TileOptions();
         // Default behavior requested: square tiles whose size equals the original image width.
@@ -74,6 +78,11 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         params.alpha = 0.4;
         params.beta = 0.3;
         params.gamma = 0.3;
+        // Suppress an unnaturally sharp spike at exactly 90deg (common axial artifact) before peak+mask.
+        params.suppressAngleSpike = true;
+        params.suppressAngleDeg = 90;
+        params.suppressHalfWidthDeg = 0;
+        params.suppressIfOverMedianRatio = 6.0;
 
         String macroOpts = (argOptions != null && argOptions.trim().length() > 0)
                 ? argOptions
@@ -170,6 +179,16 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
             final int y0 = yPositions[gy];
             for (int gx = 0; gx < nx; gx++) {
                 final int x0 = xPositions[gx];
+
+                if (outOpts.drawTileBoxes) {
+                    vectorCanvas.setColor(Color.yellow);
+                    vectorCanvas.setLineWidth(Math.max(1, outOpts.boxLineWidth));
+                    vectorCanvas.drawRect(x0, y0, tile, tile);
+                    if (outOpts.labelTileBoxes) {
+                        vectorCanvas.setFont(new Font("SansSerif", Font.BOLD, 12));
+                        vectorCanvas.drawString((gy * nx + gx + 1) + "", x0 + 3, y0 + 14);
+                    }
+                }
 
                 gray.setRoi(x0, y0, tile, tile);
                 ImageProcessor tileIp = gray.crop();
@@ -308,6 +327,9 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         boolean overlayOnOriginal;
         boolean exportSOL;
         boolean wrap90;
+        boolean drawTileBoxes;
+        boolean labelTileBoxes;
+        int boxLineWidth;
         String outputDirOverride;
         boolean debug;
     }
@@ -333,6 +355,12 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         params.beta = parseDouble(kv.get("beta"), params.beta);
         params.gamma = parseDouble(kv.get("gamma"), params.gamma);
 
+        // Artifact suppression at an exact angle before peak+mask.
+        params.suppressAngleSpike = parseBoolean(firstNonNull(kv.get("suppressanglespike"), kv.get("suppress90"), kv.get("removeninety")), params.suppressAngleSpike);
+        params.suppressAngleDeg = parseInt(firstNonNull(kv.get("suppressangledeg"), kv.get("suppressangle"), kv.get("suppresstheta")), params.suppressAngleDeg);
+        params.suppressHalfWidthDeg = parseInt(firstNonNull(kv.get("suppresshalfwidthdeg"), kv.get("suppresswidth"), kv.get("suppressw")), params.suppressHalfWidthDeg);
+        params.suppressIfOverMedianRatio = parseDouble(firstNonNull(kv.get("suppressifovermedianratio"), kv.get("suppressratio"), kv.get("suppressr")), params.suppressIfOverMedianRatio);
+
         // Tiling / overlap parameters
         tile.tileIsImageWidth = parseBoolean(kv.get("tilewidth"), tile.tileIsImageWidth);
         // If true, use the maximum number of overlapping boxes from top to bottom (step=1).
@@ -352,6 +380,9 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         out.overlayOnOriginal = parseBoolean(kv.get("overlay"), out.overlayOnOriginal);
         out.exportSOL = parseBoolean(kv.get("exports"), out.exportSOL);
         out.wrap90 = parseBoolean(kv.get("wrap90"), out.wrap90);
+        out.drawTileBoxes = parseBoolean(firstNonNull(kv.get("drawboxes"), kv.get("drawtileboxes"), kv.get("boxes")), out.drawTileBoxes);
+        out.labelTileBoxes = parseBoolean(firstNonNull(kv.get("labelboxes"), kv.get("labeltileboxes"), kv.get("labels")), out.labelTileBoxes);
+        out.boxLineWidth = parseInt(firstNonNull(kv.get("boxlinewidth"), kv.get("linewidth"), kv.get("boxeslw")), out.boxLineWidth);
         out.debug = parseBoolean(kv.get("debug"), out.debug);
 
         final String outDir = kv.get("outputdir");

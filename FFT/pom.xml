@@ -86,7 +86,14 @@
             <include>fftanalysis/imagej/FIBA_Orientation.java</include>
             <include>fftanalysis/imagej/FIBA_Orientation_Profile.java</include>
             <include>fftanalysis/imagej/FIBA_All_FromFolder.java</include>
+            <include>fftanalysis/imagej/TileUtils.java</include>
+            <include>fftanalysis/imagej/FIBA_Tile_ByContent.java</include>
           </includes>
+
+          <!-- Always compile tests -->
+          <testIncludes>
+            <testInclude>**/*Test.java</testInclude>
+          </testIncludes>
         </configuration>
       </plugin>
 

@@ -74,6 +74,11 @@ public class FIBA_Orientation implements PlugInFilter {
         params.alpha = 0.4;
         params.beta = 0.3;
         params.gamma = 0.3;
+        // Suppress an unnaturally sharp spike at exactly 90deg (common axial artifact) before peak+mask.
+        params.suppressAngleSpike = true;
+        params.suppressAngleDeg = 90;
+        params.suppressHalfWidthDeg = 0;
+        params.suppressIfOverMedianRatio = 6.0;
 
         final OutputOptions outOpts = new OutputOptions();
         outOpts.saveOutputs = true;
@@ -251,6 +256,12 @@ public class FIBA_Orientation implements PlugInFilter {
         params.beta = parseDouble(kv.get("beta"), params.beta);
         params.gamma = parseDouble(kv.get("gamma"), params.gamma);
 
+        // Artifact suppression at an exact angle before peak+mask.
+        params.suppressAngleSpike = parseBoolean(firstNonNull(kv.get("suppressanglespike"), kv.get("suppress90"), kv.get("removeninety")), params.suppressAngleSpike);
+        params.suppressAngleDeg = parseInt(firstNonNull(kv.get("suppressangledeg"), kv.get("suppressangle"), kv.get("suppresstheta")), params.suppressAngleDeg);
+        params.suppressHalfWidthDeg = parseInt(firstNonNull(kv.get("suppresshalfwidthdeg"), kv.get("suppresswidth"), kv.get("suppressw")), params.suppressHalfWidthDeg);
+        params.suppressIfOverMedianRatio = parseDouble(firstNonNull(kv.get("suppressifovermedianratio"), kv.get("suppressratio"), kv.get("suppressr")), params.suppressIfOverMedianRatio);
+
         out.saveOutputs = parseBoolean(kv.get("save"), out.saveOutputs);
         out.showComposite = parseBoolean(kv.get("showcomposite"), out.showComposite);
         out.showPlot = parseBoolean(kv.get("showplot"), out.showPlot);
@@ -260,6 +271,12 @@ public class FIBA_Orientation implements PlugInFilter {
         if (outDir != null && outDir.trim().length() > 0) {
             out.outputDirOverride = outDir.trim();
         }
+    }
+
+    private static String firstNonNull(String a, String b, String c) {
+        if (a != null) return a;
+        if (b != null) return b;
+        return c;
     }
 
     private static Map<String, String> parseKeyValueOptions(String opts) {

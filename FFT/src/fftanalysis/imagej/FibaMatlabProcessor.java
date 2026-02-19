@@ -38,6 +38,21 @@ public final class FibaMatlabProcessor {
 
         /** expected image is square; if not, caller should crop first */
         public boolean requireSquare = true;
+
+        /**
+         * Optional artifact suppression: if SOL has a strong spike at an exact angle (e.g. 90deg),
+         * attenuate that bin (and optionally a small neighborhood) BEFORE peak finding and mask creation.
+         *
+         * Motivation: some imaging workflows introduce non-biological, perfectly axial line artifacts
+         * that manifest as an unnaturally sharp peak at exactly 0/90 degrees.
+         */
+        public boolean suppressAngleSpike = false;
+        /** center angle (deg in [0,179]) to suppress; typical: 90 */
+        public int suppressAngleDeg = 90;
+        /** half-width in degrees around suppressAngleDeg to attenuate; 0 means only the exact bin */
+        public int suppressHalfWidthDeg = 0;
+        /** Only suppress if SOL[angle] is greater than this ratio times median(SOL). */
+        public double suppressIfOverMedianRatio = 6.0;
     }
 
     public static final class Result {
@@ -186,12 +201,13 @@ public final class FibaMatlabProcessor {
         for (int t = 90; t < 180; t++) {
             sol[t] = B[t - 90] / sumB;
         }
-        out.sol = sol;
-        out.meanSol = mean(sol);
-        out.stdSol = std(sol, out.meanSol);
+        final double[] solFiltered = maybeSuppressAngleSpike(sol, params);
+        out.sol = solFiltered;
+        out.meanSol = mean(solFiltered);
+        out.stdSol = std(solFiltered, out.meanSol);
 
         // Identify statistically significant peak following MATLAB logic.
-        final PeakInfo peak = findPeak(sol, out.meanSol, out.stdSol);
+        final PeakInfo peak = findPeak(solFiltered, out.meanSol, out.stdSol);
         out.pAng = peak.pAng;
         out.warnPk = peak.warnPk;
         out.spWid = peak.spWid;
@@ -209,6 +225,66 @@ public final class FibaMatlabProcessor {
         out.aind2 = recon.aind2;
 
         return out;
+    }
+
+    private static double[] maybeSuppressAngleSpike(double[] sol, Params params) {
+        if (sol == null || sol.length != 180) return sol;
+        if (params == null || !params.suppressAngleSpike) return sol;
+
+        final int halfWidth = Math.max(0, params.suppressHalfWidthDeg);
+        final int center = mod180(params.suppressAngleDeg);
+
+        final double med = median(sol);
+        if (!(med > 0)) {
+            // If SOL is all zeros (or NaN), there's nothing sensible to do.
+            return sol;
+        }
+
+        final double ratio = sol[center] / med;
+        if (!(ratio >= params.suppressIfOverMedianRatio)) {
+            return sol;
+        }
+
+        // Additional check: make sure this looks like a narrow spike (higher than immediate neighbors).
+        final double n1 = sol[mod180(center - 1)];
+        final double n2 = sol[mod180(center + 1)];
+        final double neighborAvg = 0.5 * (n1 + n2);
+        if (!(sol[center] > neighborAvg)) {
+            return sol;
+        }
+
+        final double[] out = sol.clone();
+        for (int d = -halfWidth; d <= halfWidth; d++) {
+            out[mod180(center + d)] = neighborAvg;
+        }
+
+        // Re-normalize to keep SOL as a probability-like distribution.
+        final double s = sum(out);
+        if (s > 0) {
+            for (int i = 0; i < out.length; i++) out[i] /= s;
+        }
+        return out;
+    }
+
+    private static int mod180(int a) {
+        int m = a % 180;
+        if (m < 0) m += 180;
+        return m;
+    }
+
+    private static double median(double[] a) {
+        final double[] copy = new double[a.length];
+        int n = 0;
+        for (int i = 0; i < a.length; i++) {
+            final double v = a[i];
+            if (Double.isNaN(v) || Double.isInfinite(v)) continue;
+            copy[n++] = v;
+        }
+        if (n == 0) return Double.NaN;
+        java.util.Arrays.sort(copy, 0, n);
+        final int mid = n / 2;
+        if ((n & 1) == 1) return copy[mid];
+        return 0.5 * (copy[mid - 1] + copy[mid]);
     }
 
     // ---------------------------------------------------------------------
