@@ -384,6 +384,8 @@ public final class FibaMatlabProcessor {
                 peakId = i;
             }
         }
+        // Force peakId into the middle SOL3 copy (indices 180..359) to avoid wrap ambiguities.
+        peakId = 180 + (peakId % 180);
 
         int indInPeakbd = -1;
         for (int i = 0; i < peakbd.size(); i++) {
@@ -399,9 +401,8 @@ public final class FibaMatlabProcessor {
         int warnPk = 0;
 
         if (!peakbd.isEmpty() && indInPeakbd >= 0) {
-            // MATLAB's "+ length(peakbd)/3" biases selection to the middle segment.
-            final int biasedIndex = indInPeakbd + (peakbd.size() / 3);
-            final int centerPos = Math.min(Math.max(biasedIndex, 0), peakbd.size() - 1);
+            // peakId is already in the middle copy; use its exact position in peakbd.
+            final int centerPos = indInPeakbd;
 
             // Scan right for break
             int r = centerPos;
@@ -463,9 +464,9 @@ public final class FibaMatlabProcessor {
         while (pAng < 0) pAng += 180;
         while (pAng >= 180) pAng -= 180;
 
-        // Fold reconstruction bounds into [0,179] but preserve wrap
-        if (ang1 < 0) ang1 += 180;
-        if (ang2 >= 180) ang2 -= 180;
+        // Fold reconstruction bounds into [0,179] while preserving wrap (ang2 < ang1 indicates wrap).
+        ang1 = mod180(ang1);
+        ang2 = mod180(ang2);
 
         out.pAng = pAng;
         out.spWid = spWid;
