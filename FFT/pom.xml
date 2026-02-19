@@ -17,6 +17,8 @@
     <!-- Pin versions for reproducible builds -->
     <imagej1.version>1.54k</imagej1.version>
     <jtransforms.version>3.1</jtransforms.version>
+    <jlargearrays.version>1.5</jlargearrays.version>
+    <commons-math3.version>3.5</commons-math3.version>
   </properties>
 
   <dependencies>
@@ -34,6 +36,18 @@
       <groupId>com.github.wendykierp</groupId>
       <artifactId>JTransforms</artifactId>
       <version>${jtransforms.version}</version>
+    </dependency>
+
+    <!-- JTransforms runtime dependencies (declare explicitly so they get shaded) -->
+    <dependency>
+      <groupId>pl.edu.icm</groupId>
+      <artifactId>JLargeArrays</artifactId>
+      <version>${jlargearrays.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-math3</artifactId>
+      <version>${commons-math3.version}</version>
     </dependency>
 
     <!-- Test (smoke test the math without launching ImageJ UI) -->
@@ -66,6 +80,13 @@
           <source>${maven.compiler.source}</source>
           <target>${maven.compiler.target}</target>
           <encoding>${project.build.sourceEncoding}</encoding>
+          <!-- Only compile the ImageJ plugin classes used for FIBA orientation analysis -->
+          <includes>
+            <include>fftanalysis/imagej/FibaMatlabProcessor.java</include>
+            <include>fftanalysis/imagej/FIBA_Orientation.java</include>
+            <include>fftanalysis/imagej/FIBA_Orientation_Profile.java</include>
+            <include>fftanalysis/imagej/FIBA_All_FromFolder.java</include>
+          </includes>
         </configuration>
       </plugin>
 
@@ -93,7 +114,7 @@
               <createDependencyReducedPom>false</createDependencyReducedPom>
               <!-- Attach a single self-contained jar (excluding provided ImageJ) -->
               <shadedArtifactAttached>true</shadedArtifactAttached>
-              <shadedClassifierName>all</shadedClassifierName>
+              <shadedClassifierName>shaded</shadedClassifierName>
             </configuration>
           </execution>
         </executions>
