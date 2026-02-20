@@ -40,6 +40,17 @@ public final class FibaMatlabProcessor {
         public boolean requireSquare = true;
 
         /**
+         * Optional artifact suppression: remove any perfectly-vertical line that spans (nearly) the full image height
+         * in the reconstructed mask (imgR2) after thresholding.
+         *
+         * Motivation: some workflows produce a non-biological, axis-aligned line artifact that can run from the
+         * very top to the very bottom of an image/tile, which should not be considered part of the mask.
+         */
+        public boolean removeFullHeightVerticalLine = false;
+        /** Minimum fraction of rows that must be nonzero in a column for that column to be removed (1.0 = strict full height). */
+        public double removeFullHeightVerticalLineMinCoverage = 1.0;
+
+        /**
          * Optional artifact suppression: if SOL has a strong spike at an exact angle (e.g. 90deg),
          * attenuate that bin (and optionally a small neighborhood) BEFORE peak finding and mask creation.
          *
@@ -218,7 +229,8 @@ public final class FibaMatlabProcessor {
 
         // ================= Step III: Inverse FFT2 Reconstruction ===========
         final Reconstruction recon = reconstruct(j1, imgS, imgF, phase, w, rmin, rmax,
-                params.beta, params.gamma, out.ang1, out.ang2);
+            params.beta, params.gamma, out.ang1, out.ang2,
+            params.removeFullHeightVerticalLine, params.removeFullHeightVerticalLineMinCoverage);
         out.imgR2 = recon.imgR2;
         out.overlay = recon.overlay;
         out.aind1 = recon.aind1;
@@ -499,7 +511,9 @@ public final class FibaMatlabProcessor {
             double beta,
             double gamma,
             int ang1,
-            int ang2
+            int ang2,
+            boolean removeFullHeightVerticalLine,
+            double removeFullHeightVerticalLineMinCoverage
     ) {
         final int n = imgS.length;
         final int[] ainds = computeAinds(ang1, ang2);
@@ -564,6 +578,10 @@ public final class FibaMatlabProcessor {
             }
         }
 
+        if (removeFullHeightVerticalLine) {
+            suppressFullHeightVerticalLinesInPlace(imgR2, removeFullHeightVerticalLineMinCoverage);
+        }
+
         // Overlay: ImgS2(:,:,1) = imadjust(J)/255; ImgS2(:,:,2/3) = base - ImgR2
         final double[][][] overlay = new double[n][n][3];
         for (int row = 0; row < n; row++) {
@@ -581,6 +599,28 @@ public final class FibaMatlabProcessor {
         out.aind1 = aind1;
         out.aind2 = aind2;
         return out;
+    }
+
+    private static void suppressFullHeightVerticalLinesInPlace(double[][] img, double minCoverageFrac) {
+        if (img == null || img.length == 0 || img[0].length == 0) return;
+        final int nRows = img.length;
+        final int nCols = img[0].length;
+
+        final double frac = Math.max(0.0, Math.min(1.0, minCoverageFrac));
+        final int needed = (int) Math.ceil(frac * nRows);
+        if (needed <= 0) return;
+
+        for (int col = 0; col < nCols; col++) {
+            int nonZero = 0;
+            for (int row = 0; row < nRows; row++) {
+                if (img[row][col] > 0) nonZero++;
+            }
+            if (nonZero >= needed) {
+                for (int row = 0; row < nRows; row++) {
+                    img[row][col] = 0;
+                }
+            }
+        }
     }
 
     // aind helpers (for plot highlighting)

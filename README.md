@@ -21,7 +21,7 @@ It produces the same *types* of outputs as the MATLAB script:
 
 ## Install (Fiji)
 
-1. Build the jar (see below), then copy the shaded jar `*-all.jar` into your Fiji `plugins/` folder.
+1. Build the jar (see below), then copy the shaded jar `*-shaded.jar` into your Fiji `plugins/` folder.
 2. Restart Fiji.
 3. Run via: `Plugins > FFT > FIBA Orientation (MATLAB)`
 
@@ -30,7 +30,7 @@ It produces the same *types* of outputs as the MATLAB script:
 ImageJ2 can run ImageJ1 plugins via **legacy** support.
 
 1. Ensure ImageJ2 legacy is enabled/available.
-2. Copy the shaded jar `*-all.jar` into the appropriate `plugins/` folder for your ImageJ2 installation.
+2. Copy the shaded jar `*-shaded.jar` into the appropriate `plugins/` folder for your ImageJ2 installation.
 3. Restart ImageJ2.
 4. Look for: `Plugins > FFT > FIBA Orientation (MATLAB)`
 
@@ -40,3 +40,33 @@ ImageJ2 can run ImageJ1 plugins via **legacy** support.
 - Unit tests live in `FFT/src/test/java` and validate the core math without launching the UI.
 
 This repo also contains a GitHub Actions workflow which builds and uploads the plugin jar as an artifact on each push/PR.
+
+### Note on VS Code + Maven
+
+If you opened this repo using the VS Code **GitHub Repositories** virtual filesystem (`vscode-vfs://...`), your local terminal is *not* running inside a real folder on disk. In that case:
+
+- `cd FFT` will fail (because there is no `FFT/` directory on your C: drive)
+- `mvn` will fail unless Maven is installed and on your `PATH`
+
+Two ways to build:
+
+1. Use the GitHub Actions artifact (no local Maven needed):
+	- Commit + push your changes (a push to GitHub triggers the workflow).
+	- In GitHub, go to **Actions** → workflow **build** → open the latest run.
+	- Under **Artifacts**, download `imgjplugin-fft`.
+	- Unzip it and use the `FFT/target/*-shaded.jar` inside.
+2. Clone the repo locally (so it exists on disk), install Maven, then run `mvn test package` in `FFT/`.
+
+### Running in Fiji / getting output images
+
+1. Copy the `*-shaded.jar` into your Fiji `plugins/` folder.
+2. Restart Fiji.
+3. Run the plugin from `Plugins > FFT > FIBA Orientation (MATLAB)`.
+4. The plugin writes outputs alongside the input image (filenames like `*_rec.jpg` and `*_dat.jpg`).
+
+### One-click macro runner
+
+If you don’t want to click through menus each time, use the included macro:
+
+- Run `macros/run_fiba_orientation_outputs.ijm` via `Plugins > Macros > Run...`
+- It runs `FIBA Orientation (MATLAB)` on the currently active image and saves the standard outputs.

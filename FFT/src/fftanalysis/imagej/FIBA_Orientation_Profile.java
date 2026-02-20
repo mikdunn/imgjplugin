@@ -84,6 +84,10 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         params.suppressHalfWidthDeg = 0;
         params.suppressIfOverMedianRatio = 6.0;
 
+        // Mask-stage artifact suppression: remove any perfectly-vertical column that spans the full tile height.
+        params.removeFullHeightVerticalLine = true;
+        params.removeFullHeightVerticalLineMinCoverage = 1.0;
+
         String macroOpts = (argOptions != null && argOptions.trim().length() > 0)
                 ? argOptions
                 : Macro.getOptions();
@@ -360,6 +364,13 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         params.suppressAngleDeg = parseInt(firstNonNull(kv.get("suppressangledeg"), kv.get("suppressangle"), kv.get("suppresstheta")), params.suppressAngleDeg);
         params.suppressHalfWidthDeg = parseInt(firstNonNull(kv.get("suppresshalfwidthdeg"), kv.get("suppresswidth"), kv.get("suppressw")), params.suppressHalfWidthDeg);
         params.suppressIfOverMedianRatio = parseDouble(firstNonNull(kv.get("suppressifovermedianratio"), kv.get("suppressratio"), kv.get("suppressr")), params.suppressIfOverMedianRatio);
+
+        params.removeFullHeightVerticalLine = parseBoolean(
+            firstNonNull(kv.get("removefullheightverticalline"), kv.get("removeverticalfullline"), kv.get("removeverticalcolumn")),
+            params.removeFullHeightVerticalLine);
+        params.removeFullHeightVerticalLineMinCoverage = parseDouble(
+            firstNonNull(kv.get("removefullheightverticallinemincoverage"), kv.get("removeverticalmincoverage"), kv.get("verticalmincoverage")),
+            params.removeFullHeightVerticalLineMinCoverage);
 
         // Tiling / overlap parameters
         tile.tileIsImageWidth = parseBoolean(kv.get("tilewidth"), tile.tileIsImageWidth);

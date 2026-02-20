@@ -80,6 +80,10 @@ public class FIBA_Orientation implements PlugInFilter {
         params.suppressHalfWidthDeg = 0;
         params.suppressIfOverMedianRatio = 6.0;
 
+        // Mask-stage artifact suppression: remove any perfectly-vertical column that spans the full image height.
+        params.removeFullHeightVerticalLine = true;
+        params.removeFullHeightVerticalLineMinCoverage = 1.0;
+
         final OutputOptions outOpts = new OutputOptions();
         outOpts.saveOutputs = true;
         outOpts.showComposite = true;
@@ -261,6 +265,13 @@ public class FIBA_Orientation implements PlugInFilter {
         params.suppressAngleDeg = parseInt(firstNonNull(kv.get("suppressangledeg"), kv.get("suppressangle"), kv.get("suppresstheta")), params.suppressAngleDeg);
         params.suppressHalfWidthDeg = parseInt(firstNonNull(kv.get("suppresshalfwidthdeg"), kv.get("suppresswidth"), kv.get("suppressw")), params.suppressHalfWidthDeg);
         params.suppressIfOverMedianRatio = parseDouble(firstNonNull(kv.get("suppressifovermedianratio"), kv.get("suppressratio"), kv.get("suppressr")), params.suppressIfOverMedianRatio);
+
+        params.removeFullHeightVerticalLine = parseBoolean(
+            firstNonNull(kv.get("removefullheightverticalline"), kv.get("removeverticalfullline"), kv.get("removeverticalcolumn")),
+            params.removeFullHeightVerticalLine);
+        params.removeFullHeightVerticalLineMinCoverage = parseDouble(
+            firstNonNull(kv.get("removefullheightverticallinemincoverage"), kv.get("removeverticalmincoverage"), kv.get("verticalmincoverage")),
+            params.removeFullHeightVerticalLineMinCoverage);
 
         out.saveOutputs = parseBoolean(kv.get("save"), out.saveOutputs);
         out.showComposite = parseBoolean(kv.get("showcomposite"), out.showComposite);

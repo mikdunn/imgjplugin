@@ -28,5 +28,6 @@ jobs:
         with:
           name: imgjplugin-fft
           path: |
+            FFT/target/*-shaded.jar
             FFT/target/*-all.jar
             FFT/target/surefire-reports/**
