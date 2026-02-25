@@ -11,11 +11,7 @@ if (nImages==0) {
 }
 
 // Run the plugin. Options are parsed as whitespace-separated key=value pairs.
-// Defaults in the plugin already enable:
-// - suppressanglespike=true (exact-angle SOL spike suppression)
-// - removefullheightverticalline=true (mask cleanup)
-// but we set them explicitly here for reproducibility.
+// Artifact suppression is intentionally NOT enabled here; we will deal with artifacts ONLY with alpha values.
 run("FIBA Orientation (MATLAB)",
     "save=true showcomposite=true showplot=true " +
-    "suppressanglespike=true suppressangledeg=90 suppresshalfwidthdeg=0 suppressifovermedianratio=6 " +
-    "removefullheightverticalline=true removefullheightverticallinemincoverage=1.0");
+    "");

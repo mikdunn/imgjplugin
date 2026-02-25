@@ -14,11 +14,16 @@ import ij.process.ByteProcessor;
 import ij.process.ColorProcessor;
 import ij.process.ImageProcessor;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileWriter;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -74,20 +79,20 @@ public class FIBA_Orientation implements PlugInFilter {
         params.alpha = 0.4;
         params.beta = 0.3;
         params.gamma = 0.3;
-        // Suppress an unnaturally sharp spike at exactly 90deg (common axial artifact) before peak+mask.
-        params.suppressAngleSpike = true;
-        params.suppressAngleDeg = 90;
-        params.suppressHalfWidthDeg = 0;
-        params.suppressIfOverMedianRatio = 6.0;
-
-        // Mask-stage artifact suppression: remove any perfectly-vertical column that spans the full image height.
-        params.removeFullHeightVerticalLine = true;
-        params.removeFullHeightVerticalLineMinCoverage = 1.0;
+        // Artifact suppression is OFF by default. We will deal with artifacts ONLY with alpha values.
+        params.suppressAngleSpike = false;
+        params.removeFullHeightVerticalLine = false;
+        params.removeFullWidthHorizontalLine = false;
 
         final OutputOptions outOpts = new OutputOptions();
         outOpts.saveOutputs = true;
+        outOpts.saveSolCsv = true;
         outOpts.showComposite = true;
         outOpts.showPlot = true;
+        outOpts.plotApplyTukey = false;
+        // Fixed polar scaling so amplitude differences remain visible across alpha sweeps.
+        // Typical SOL peaks are on the order of 0.01–0.03.
+        outOpts.polarScaleMax = 0.03;
 
         // Allow non-interactive execution from macros / batch mode.
         // Priority: explicit argOptions (from setup) then Macro options.
@@ -132,6 +137,10 @@ public class FIBA_Orientation implements PlugInFilter {
             if (macroOpts == null || !macroOpts.toLowerCase().contains("save=")) {
                 outOpts.saveOutputs = true;
             }
+            final String lower = (macroOpts == null) ? "" : macroOpts.toLowerCase();
+            if (!(lower.contains("savesolcsv=") || lower.contains("savesol=") || lower.contains("writesolcsv="))) {
+                outOpts.saveSolCsv = outOpts.saveOutputs;
+            }
             if (macroOpts == null || !macroOpts.toLowerCase().contains("showcomposite=")) {
                 outOpts.showComposite = false;
             }
@@ -142,7 +151,7 @@ public class FIBA_Orientation implements PlugInFilter {
 
         final double[][] j = toDouble(gray);
 
-        if (outOpts.saveOutputs && (outputDir == null || outputDir.trim().isEmpty())) {
+        if ((outOpts.saveOutputs || outOpts.saveSolCsv) && (outputDir == null || outputDir.trim().isEmpty())) {
             // Never prompt for a directory in batch/non-interactive mode.
             IJ.error("No output directory available (set outputDir=... in options)");
             debugToFile(outOpts, outputDir, "[FIBA] ERROR: outputDir is null/empty");
@@ -154,6 +163,9 @@ public class FIBA_Orientation implements PlugInFilter {
             debugToFile(outOpts, outputDir, "[FIBA] processing start n=" + n);
             res = FibaMatlabProcessor.process(j, params);
             debugToFile(outOpts, outputDir, "[FIBA] processing done pAng=" + res.pAng);
+            debugToFile(outOpts, outputDir, String.format(Locale.US,
+                    "[FIBA] metrics pAng=%d spWid=%d pWidth=%d bandStrength=%.6f warnPk=%d ang1=%d ang2=%d meanSol=%.10g stdSol=%.10g",
+                    res.pAng, res.spWid, res.pWidth, res.bandStrength, res.warnPk, res.ang1, res.ang2, res.meanSol, res.stdSol));
         } catch (Exception e) {
             if (outOpts.debug || headless) {
                 e.printStackTrace();
@@ -195,8 +207,17 @@ public class FIBA_Orientation implements PlugInFilter {
 
         ImagePlus plotImp = null;
         if (outOpts.showPlot || outOpts.saveOutputs) {
-            plotImp = buildPlotImage(baseName + "_dat", res);
+            final double[] solPlot = solForPlot(res, params, outOpts);
+            plotImp = buildPlotImage(baseName + "_dat", res, solPlot);
             if (outOpts.showPlot) plotImp.show();
+        }
+
+        ImagePlus polarImp = null;
+        if (outOpts.showPlot || outOpts.saveOutputs) {
+            final double[] solPlot = solForPlot(res, params, outOpts);
+            polarImp = buildPolarPlotImage(baseName + "_polar", res, solPlot, outOpts.polarScaleMax);
+            // Keep behavior simple: when user requests plots, show both.
+            if (outOpts.showPlot) polarImp.show();
         }
 
         if (outOpts.saveOutputs) {
@@ -209,6 +230,21 @@ public class FIBA_Orientation implements PlugInFilter {
                 final File outFile = new File(outputDir, baseName + "_dat.jpg");
                 new FileSaver(plotImp).saveAsJpeg(outFile.getAbsolutePath());
                 debugToFile(outOpts, outputDir, "[FIBA] saved: " + outFile.getAbsolutePath());
+            }
+            if (polarImp != null) {
+                final File outFile = new File(outputDir, baseName + "_polar.jpg");
+                new FileSaver(polarImp).saveAsJpeg(outFile.getAbsolutePath());
+                debugToFile(outOpts, outputDir, "[FIBA] saved: " + outFile.getAbsolutePath());
+            }
+        }
+
+        if (outOpts.saveSolCsv) {
+            try {
+                final File outFile = new File(outputDir, baseName + "_sol.csv");
+                writeSolCsv(outFile, res, params);
+                debugToFile(outOpts, outputDir, "[FIBA] saved: " + outFile.getAbsolutePath());
+            } catch (Exception e) {
+                debugToFile(outOpts, outputDir, "[FIBA] WARN: failed to save SOL CSV: " + e);
             }
         }
 
@@ -243,8 +279,11 @@ public class FIBA_Orientation implements PlugInFilter {
 
     private static final class OutputOptions {
         boolean saveOutputs;
+        boolean saveSolCsv;
         boolean showComposite;
         boolean showPlot;
+        boolean plotApplyTukey;
+        double polarScaleMax;
         String outputDirOverride;
         boolean debug;
     }
@@ -263,6 +302,7 @@ public class FIBA_Orientation implements PlugInFilter {
         // Artifact suppression at an exact angle before peak+mask.
         params.suppressAngleSpike = parseBoolean(firstNonNull(kv.get("suppressanglespike"), kv.get("suppress90"), kv.get("removeninety")), params.suppressAngleSpike);
         params.suppressAngleDeg = parseInt(firstNonNull(kv.get("suppressangledeg"), kv.get("suppressangle"), kv.get("suppresstheta")), params.suppressAngleDeg);
+        params.suppressAnglesDeg = parseIntList(firstNonNull(kv.get("suppressangles"), kv.get("suppressanglelist"), kv.get("suppresslist")), params.suppressAnglesDeg);
         params.suppressHalfWidthDeg = parseInt(firstNonNull(kv.get("suppresshalfwidthdeg"), kv.get("suppresswidth"), kv.get("suppressw")), params.suppressHalfWidthDeg);
         params.suppressIfOverMedianRatio = parseDouble(firstNonNull(kv.get("suppressifovermedianratio"), kv.get("suppressratio"), kv.get("suppressr")), params.suppressIfOverMedianRatio);
 
@@ -273,9 +313,19 @@ public class FIBA_Orientation implements PlugInFilter {
             firstNonNull(kv.get("removefullheightverticallinemincoverage"), kv.get("removeverticalmincoverage"), kv.get("verticalmincoverage")),
             params.removeFullHeightVerticalLineMinCoverage);
 
+        params.removeFullWidthHorizontalLine = parseBoolean(
+            firstNonNull(kv.get("removefullwidthhorizontalline"), kv.get("removehorizontalfullline"), kv.get("removehorizontalrow")),
+            params.removeFullWidthHorizontalLine);
+        params.removeFullWidthHorizontalLineMinCoverage = parseDouble(
+            firstNonNull(kv.get("removefullwidthhorizontallinemincoverage"), kv.get("removehorizontalmincoverage"), kv.get("horizontalmincoverage")),
+            params.removeFullWidthHorizontalLineMinCoverage);
+
         out.saveOutputs = parseBoolean(kv.get("save"), out.saveOutputs);
+        out.saveSolCsv = parseBoolean(firstNonNull(kv.get("savesolcsv"), kv.get("savesol"), kv.get("writesolcsv")), out.saveSolCsv);
         out.showComposite = parseBoolean(kv.get("showcomposite"), out.showComposite);
         out.showPlot = parseBoolean(kv.get("showplot"), out.showPlot);
+        out.plotApplyTukey = parseBoolean(firstNonNull(kv.get("plotapplytukey"), kv.get("applytukeytoplot"), kv.get("tukeyplot")), out.plotApplyTukey);
+        out.polarScaleMax = parseDouble(firstNonNull(kv.get("polarscalemax"), kv.get("polarrmax"), kv.get("polarscale")), out.polarScaleMax);
         out.debug = parseBoolean(kv.get("debug"), out.debug);
 
         final String outDir = kv.get("outputdir");
@@ -334,6 +384,29 @@ public class FIBA_Orientation implements PlugInFilter {
         return def;
     }
 
+    private static int[] parseIntList(String s, int[] def) {
+        if (s == null) return def;
+        final String t = s.trim();
+        if (t.isEmpty()) return def;
+        final String[] parts = t.split(",");
+        int[] out = new int[parts.length];
+        int n = 0;
+        for (int i = 0; i < parts.length; i++) {
+            final String p = parts[i].trim();
+            if (p.isEmpty()) continue;
+            try {
+                out[n++] = (int) Math.round(Double.parseDouble(p));
+            } catch (Exception ignore) {
+                // ignore token
+            }
+        }
+        if (n == 0) return def;
+        if (n == out.length) return out;
+        int[] trimmed = new int[n];
+        System.arraycopy(out, 0, trimmed, 0, n);
+        return trimmed;
+    }
+
     private static boolean showDialog(FibaMatlabProcessor.Params params, OutputOptions out, int w) {
         final GenericDialog gd = new GenericDialog("FIBA (MATLAB-modeled)");
         gd.addMessage("Parameters are modeled after fiba.m");
@@ -348,6 +421,7 @@ public class FIBA_Orientation implements PlugInFilter {
         gd.addCheckbox("Show composite output", out.showComposite);
         gd.addCheckbox("Show orientation plot", out.showPlot);
         gd.addCheckbox("Save *_rec.jpg and *_dat.jpg", out.saveOutputs);
+        gd.addCheckbox("Save *_sol.csv", out.saveSolCsv);
 
         gd.showDialog();
         if (gd.wasCanceled()) return false;
@@ -361,8 +435,59 @@ public class FIBA_Orientation implements PlugInFilter {
         out.showComposite = gd.getNextBoolean();
         out.showPlot = gd.getNextBoolean();
         out.saveOutputs = gd.getNextBoolean();
+        out.saveSolCsv = gd.getNextBoolean();
 
         return true;
+    }
+
+    private static void writeSolCsv(File outFile, FibaMatlabProcessor.Result res, FibaMatlabProcessor.Params params) throws Exception {
+        if (outFile == null || res == null || res.sol == null || res.sol.length < 180) return;
+
+        final int rminUsed = (params == null) ? -1 : Math.max(0, params.rmin);
+        final int rmaxUsed = (params == null)
+                ? -1
+                : ((params.rmax > 0) ? params.rmax : (res.w - 1));
+
+        try (FileWriter fw = new FileWriter(outFile, false)) {
+            fw.write("angle_deg,sol,meanSol,stdSol,pAng_deg,spWid_deg,bandStrength,pWidth_deg,warnPk,ang1_deg,ang2_deg,n,rmin,rmax,alpha,beta,gamma");
+            fw.write(System.lineSeparator());
+            for (int ang = 0; ang < 180; ang++) {
+                fw.write(Integer.toString(ang));
+                fw.write(',');
+                fw.write(Double.toString(res.sol[ang]));
+                fw.write(',');
+                fw.write(Double.toString(res.meanSol));
+                fw.write(',');
+                fw.write(Double.toString(res.stdSol));
+                fw.write(',');
+                fw.write(Integer.toString(res.pAng));
+                fw.write(',');
+                fw.write(Integer.toString(res.spWid));
+                fw.write(',');
+                fw.write(Double.toString(res.bandStrength));
+                fw.write(',');
+                fw.write(Integer.toString(res.pWidth));
+                fw.write(',');
+                fw.write(Integer.toString(res.warnPk));
+                fw.write(',');
+                fw.write(Integer.toString(res.ang1));
+                fw.write(',');
+                fw.write(Integer.toString(res.ang2));
+                fw.write(',');
+                fw.write(Integer.toString(res.n));
+                fw.write(',');
+                fw.write(Integer.toString(rminUsed));
+                fw.write(',');
+                fw.write(Integer.toString(rmaxUsed));
+                fw.write(',');
+                fw.write(Double.toString(params == null ? Double.NaN : params.alpha));
+                fw.write(',');
+                fw.write(Double.toString(params == null ? Double.NaN : params.beta));
+                fw.write(',');
+                fw.write(Double.toString(params == null ? Double.NaN : params.gamma));
+                fw.write(System.lineSeparator());
+            }
+        }
     }
 
     private static String determineOutputDir(ImagePlus imp, OutputOptions opts, boolean interactiveUI) {
@@ -482,12 +607,12 @@ public class FIBA_Orientation implements PlugInFilter {
         return v;
     }
 
-    private static ImagePlus buildPlotImage(String title, FibaMatlabProcessor.Result res) {
+    private static ImagePlus buildPlotImage(String title, FibaMatlabProcessor.Result res, double[] solForPlot) {
         final double[] x = new double[180];
         final double[] y = new double[180];
         for (int i = 0; i < 180; i++) {
             x[i] = i;
-            y[i] = res.sol[i];
+            y[i] = (solForPlot != null && solForPlot.length >= 180) ? solForPlot[i] : res.sol[i];
         }
 
         final Plot plot = new Plot(title, "Fibril Orientation (deg)", "Signal Strength", x, y);
@@ -512,6 +637,114 @@ public class FIBA_Orientation implements PlugInFilter {
         }
 
         return plot.getImagePlus();
+    }
+
+    private static ImagePlus buildPolarPlotImage(String title, FibaMatlabProcessor.Result res, double[] solForPlot, double polarScaleMax) {
+        final int size = 600;
+        final int margin = 40;
+        final int cx = size / 2;
+        final int cy = size / 2;
+        final int maxR = (size / 2) - margin;
+
+        // Replicate 180-degree SOL to 360 for a full-circle visualization.
+        // Use a fixed scale so alpha sweeps are visually comparable.
+        final double[] s = (solForPlot != null && solForPlot.length >= 180) ? solForPlot : res.sol;
+        double scaleMax = polarScaleMax;
+        if (!(scaleMax > 0)) scaleMax = 0.03;
+
+        final BufferedImage bi = new BufferedImage(size, size, BufferedImage.TYPE_INT_RGB);
+        final Graphics2D g = bi.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(Color.white);
+            g.fillRect(0, 0, size, size);
+
+            // Grid
+            g.setColor(new Color(220, 220, 220));
+            g.setStroke(new BasicStroke(1f));
+            for (int k = 1; k <= 4; k++) {
+                final int r = (int) Math.round(maxR * (k / 4.0));
+                g.drawOval(cx - r, cy - r, 2 * r, 2 * r);
+            }
+            g.drawLine(cx - maxR, cy, cx + maxR, cy);
+            g.drawLine(cx, cy - maxR, cx, cy + maxR);
+
+            // Label orientation (matches our theta-from-vertical convention)
+            g.setColor(Color.darkGray);
+            // Standard polar convention: 0° at top, 90° at right, increasing clockwise.
+            g.drawString("0°", cx - 8, cy - maxR - 8);
+            g.drawString("90°", cx + maxR + 6, cy + 4);
+            g.drawString("180°", cx - 18, cy + maxR + 16);
+            g.drawString("270°", cx - maxR - 28, cy + 4);
+
+            // SOL polyline
+            g.setColor(new Color(0, 102, 204));
+            g.setStroke(new BasicStroke(2.5f));
+            int prevX = Integer.MIN_VALUE;
+            int prevY = Integer.MIN_VALUE;
+            for (int deg = 0; deg < 360; deg++) {
+                final double v = s[deg % 180];
+                double rr = maxR * (v / scaleMax);
+                if (rr < 0) rr = 0;
+                if (rr > maxR) rr = maxR;
+
+                final double theta = Math.toRadians(deg);
+                // x is column, y is row; theta=0 points up (negative row) for standard polar plots.
+                final int x = (int) Math.round(cx + rr * Math.sin(theta));
+                final int y = (int) Math.round(cy - rr * Math.cos(theta));
+
+                if (prevX != Integer.MIN_VALUE) {
+                    g.drawLine(prevX, prevY, x, y);
+                }
+                prevX = x;
+                prevY = y;
+            }
+
+            // Center marker
+            g.setColor(Color.black);
+            g.fillOval(cx - 2, cy - 2, 5, 5);
+        } finally {
+            g.dispose();
+        }
+
+        return new ImagePlus(title, new ColorProcessor(bi));
+    }
+
+    private static double[] solForPlot(FibaMatlabProcessor.Result res, FibaMatlabProcessor.Params params, OutputOptions out) {
+        if (res == null || res.sol == null || res.sol.length < 180) return null;
+        if (out == null || !out.plotApplyTukey) return res.sol;
+
+        final double alpha = (params == null) ? 0.0 : params.alpha;
+        final double[] w = tukeyEdgeVectorPlot(180, 90, alpha);
+        final double[] y = new double[180];
+        for (int i = 0; i < 180; i++) {
+            y[i] = res.sol[i] * w[i];
+        }
+        return y;
+    }
+
+    private static double[] tukeyEdgeVectorPlot(int n, int w, double alpha) {
+        // Mirror the Tukey edge vector logic used in the core processor (MATLAB-faithful).
+        if (alpha <= 0) {
+            final double[] s = new double[n];
+            for (int i = 0; i < n; i++) s[i] = 1;
+            return s;
+        }
+
+        final double[] s = new double[n];
+        for (int i1 = 1; i1 <= n; i1++) {
+            final double i = i1;
+            final double v;
+            if (i <= alpha * w) {
+                v = 0.5 * (1.0 + Math.cos(Math.PI * (((i - 1.0) / alpha / w) - 1.0)));
+            } else if (i <= 2.0 * w * (1.0 - alpha / 2.0)) {
+                v = 1.0;
+            } else {
+                v = 0.5 * (1.0 + Math.cos(Math.PI * ((i / alpha / w) - (2.0 / alpha) - 1.0)));
+            }
+            s[i1 - 1] = v;
+        }
+        return s;
     }
 
     private static void addHighlight(Plot plot, int[] aind, FibaMatlabProcessor.Result res) {

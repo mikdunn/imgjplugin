@@ -78,15 +78,10 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         params.alpha = 0.4;
         params.beta = 0.3;
         params.gamma = 0.3;
-        // Suppress an unnaturally sharp spike at exactly 90deg (common axial artifact) before peak+mask.
-        params.suppressAngleSpike = true;
-        params.suppressAngleDeg = 90;
-        params.suppressHalfWidthDeg = 0;
-        params.suppressIfOverMedianRatio = 6.0;
-
-        // Mask-stage artifact suppression: remove any perfectly-vertical column that spans the full tile height.
-        params.removeFullHeightVerticalLine = true;
-        params.removeFullHeightVerticalLineMinCoverage = 1.0;
+        // Artifact suppression is OFF by default. We will deal with artifacts ONLY with alpha values.
+        params.suppressAngleSpike = false;
+        params.removeFullHeightVerticalLine = false;
+        params.removeFullWidthHorizontalLine = false;
 
         String macroOpts = (argOptions != null && argOptions.trim().length() > 0)
                 ? argOptions
@@ -371,6 +366,13 @@ public class FIBA_Orientation_Profile implements PlugInFilter {
         params.removeFullHeightVerticalLineMinCoverage = parseDouble(
             firstNonNull(kv.get("removefullheightverticallinemincoverage"), kv.get("removeverticalmincoverage"), kv.get("verticalmincoverage")),
             params.removeFullHeightVerticalLineMinCoverage);
+
+        params.removeFullWidthHorizontalLine = parseBoolean(
+            firstNonNull(kv.get("removefullwidthhorizontalline"), kv.get("removehorizontalfullline"), kv.get("removehorizontalrow")),
+            params.removeFullWidthHorizontalLine);
+        params.removeFullWidthHorizontalLineMinCoverage = parseDouble(
+            firstNonNull(kv.get("removefullwidthhorizontallinemincoverage"), kv.get("removehorizontalmincoverage"), kv.get("horizontalmincoverage")),
+            params.removeFullWidthHorizontalLineMinCoverage);
 
         // Tiling / overlap parameters
         tile.tileIsImageWidth = parseBoolean(kv.get("tilewidth"), tile.tileIsImageWidth);

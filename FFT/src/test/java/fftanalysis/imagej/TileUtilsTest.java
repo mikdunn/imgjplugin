@@ -48,4 +48,30 @@ public class TileUtilsTest {
         assertEquals(100, TileUtils.forceEvenSize(100));
         assertEquals(0, TileUtils.forceEvenSize(0));
     }
+
+    @Test
+    void findBandEdgesByGradient_detectsJumpDropEdges() {
+        int w = 20;
+        int h = 10;
+        byte[] px = new byte[w * h];
+
+        // Background ~10 everywhere.
+        for (int i = 0; i < px.length; i++) px[i] = (byte) 10;
+
+        // Specimen band from x=5..14 with strong jump/drop.
+        for (int y = 0; y < h; y++) {
+            for (int x = 5; x <= 14; x++) {
+                px[y * w + x] = (byte) 200;
+            }
+        }
+        // Add a bright internal spike to ensure we don't lock onto an internal gradient.
+        for (int y = 0; y < h; y++) {
+            px[y * w + 9] = (byte) 255;
+        }
+
+        int[] e = TileUtils.findBandEdgesByGradient(px, w, h, 0, h, 2);
+        assertTrue(Math.abs(e[0] - 5) <= 1, "left edge should be near 5 but was " + e[0]);
+        assertTrue(Math.abs(e[1] - 14) <= 1, "right edge should be near 14 but was " + e[1]);
+        assertTrue(Math.abs(e[2] - ((5 + 14) / 2)) <= 1, "center should be near 9 but was " + e[2]);
+    }
 }

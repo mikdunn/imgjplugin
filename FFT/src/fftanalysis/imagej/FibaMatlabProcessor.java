@@ -51,6 +51,16 @@ public final class FibaMatlabProcessor {
         public double removeFullHeightVerticalLineMinCoverage = 1.0;
 
         /**
+         * Optional artifact suppression: remove any perfectly-horizontal line that spans (nearly) the full image width
+         * in the reconstructed mask (imgR2) after thresholding.
+         *
+         * Motivation: some pipelines yield axis-aligned banding artifacts that can appear as full-width horizontal lines.
+         */
+        public boolean removeFullWidthHorizontalLine = false;
+        /** Minimum fraction of columns that must be nonzero in a row for that row to be removed (1.0 = strict full width). */
+        public double removeFullWidthHorizontalLineMinCoverage = 1.0;
+
+        /**
          * Optional artifact suppression: if SOL has a strong spike at an exact angle (e.g. 90deg),
          * attenuate that bin (and optionally a small neighborhood) BEFORE peak finding and mask creation.
          *
@@ -60,6 +70,8 @@ public final class FibaMatlabProcessor {
         public boolean suppressAngleSpike = false;
         /** center angle (deg in [0,179]) to suppress; typical: 90 */
         public int suppressAngleDeg = 90;
+        /** Optional additional angles (deg in [0,179]) to suppress. If set, all angles in this list are processed. */
+        public int[] suppressAnglesDeg = null;
         /** half-width in degrees around suppressAngleDeg to attenuate; 0 means only the exact bin */
         public int suppressHalfWidthDeg = 0;
         /** Only suppress if SOL[angle] is greater than this ratio times median(SOL). */
@@ -100,6 +112,8 @@ public final class FibaMatlabProcessor {
         public double[][] origNorm;
         public double[][] imgS;
         public double[][] imgFDisp;
+        /** the frequency-domain reconstruction mask used for inverse FFT (0..1-ish) */
+        public double[][] reconMask;
         public double[][] imgR2;
         public double[][][] overlay;
     }
@@ -136,8 +150,9 @@ public final class FibaMatlabProcessor {
 
         final double avgJ = mean(j1);
 
-        // MATLAB: generate edge blending (Tukey window)
-        final double[] s = tukeyEdgeVector(n, w, params.alpha);
+        // MATLAB: generate edge blending (Tukey window). Equivalent to tukeywin(n, alpha)
+        // and applying a separable 2D window S = s*s'.
+        final double[] s = tukeyWin1D(n, params.alpha);
         final double[][] imgS = new double[n][n];
         double maxImgS = 0;
         for (int row = 0; row < n; row++) {
@@ -161,8 +176,9 @@ public final class FibaMatlabProcessor {
         final double[][] K = new double[n][2 * n];
         for (int row = 0; row < n; row++) {
             for (int col = 0; col < n; col++) {
-                K[row][2 * col] = imgS[row][col];
-                K[row][2 * col + 1] = 0;
+                // JTransforms realForwardFull expects the real input in a[row][0..n-1].
+                // The full complex output is written back interleaved into a[row][0..2n-1].
+                K[row][col] = imgS[row][col];
             }
         }
         fft2.realForwardFull(K);
@@ -180,22 +196,10 @@ public final class FibaMatlabProcessor {
         // MATLAB: ImgF = fftshift(abs(K))
         final double[][] imgF = fftShift(amp);
 
-        // Display: (ImgF.^0.2)/max(max(ImgF.^0.2))
-        final double[][] imgFDisp = new double[n][n];
-        double maxF = 0;
-        for (int row = 0; row < n; row++) {
-            for (int col = 0; col < n; col++) {
-                final double v = Math.pow(imgF[row][col], 0.2);
-                imgFDisp[row][col] = v;
-                if (v > maxF) maxF = v;
-            }
-        }
-        if (maxF <= 0) maxF = 1;
-        for (int row = 0; row < n; row++) {
-            for (int col = 0; col < n; col++) {
-                imgFDisp[row][col] /= maxF;
-            }
-        }
+        // Display spectrum (visualization only): robust log-power scaling.
+        // Using a simple max() normalization often makes axis-aligned components look "clipped"
+        // when a few pixels (especially DC) dominate the dynamic range.
+        final double[][] imgFDisp = spectrumDisplay01(imgF);
         out.imgFDisp = imgFDisp;
 
         // MATLAB: original normalized as double(J)/max
@@ -230,7 +234,9 @@ public final class FibaMatlabProcessor {
         // ================= Step III: Inverse FFT2 Reconstruction ===========
         final Reconstruction recon = reconstruct(j1, imgS, imgF, phase, w, rmin, rmax,
             params.beta, params.gamma, out.ang1, out.ang2,
-            params.removeFullHeightVerticalLine, params.removeFullHeightVerticalLineMinCoverage);
+            params.removeFullHeightVerticalLine, params.removeFullHeightVerticalLineMinCoverage,
+            params.removeFullWidthHorizontalLine, params.removeFullWidthHorizontalLineMinCoverage);
+        out.reconMask = recon.mask;
         out.imgR2 = recon.imgR2;
         out.overlay = recon.overlay;
         out.aind1 = recon.aind1;
@@ -244,7 +250,13 @@ public final class FibaMatlabProcessor {
         if (params == null || !params.suppressAngleSpike) return sol;
 
         final int halfWidth = Math.max(0, params.suppressHalfWidthDeg);
-        final int center = mod180(params.suppressAngleDeg);
+        final int[] centers;
+        if (params.suppressAnglesDeg != null && params.suppressAnglesDeg.length > 0) {
+            centers = new int[params.suppressAnglesDeg.length];
+            for (int i = 0; i < centers.length; i++) centers[i] = mod180(params.suppressAnglesDeg[i]);
+        } else {
+            centers = new int[] { mod180(params.suppressAngleDeg) };
+        }
 
         final double med = median(sol);
         if (!(med > 0)) {
@@ -252,23 +264,34 @@ public final class FibaMatlabProcessor {
             return sol;
         }
 
-        final double ratio = sol[center] / med;
-        if (!(ratio >= params.suppressIfOverMedianRatio)) {
-            return sol;
+        double[] out = sol;
+        boolean changed = false;
+        for (int c = 0; c < centers.length; c++) {
+            final int center = centers[c];
+
+            final double ratio = out[center] / med;
+            if (!(ratio >= params.suppressIfOverMedianRatio)) {
+                continue;
+            }
+
+            // Additional check: make sure this looks like a narrow spike (higher than immediate neighbors).
+            final double n1 = out[mod180(center - 1)];
+            final double n2 = out[mod180(center + 1)];
+            final double neighborAvg = 0.5 * (n1 + n2);
+            if (!(out[center] > neighborAvg)) {
+                continue;
+            }
+
+            if (!changed) {
+                out = out.clone();
+                changed = true;
+            }
+            for (int d = -halfWidth; d <= halfWidth; d++) {
+                out[mod180(center + d)] = neighborAvg;
+            }
         }
 
-        // Additional check: make sure this looks like a narrow spike (higher than immediate neighbors).
-        final double n1 = sol[mod180(center - 1)];
-        final double n2 = sol[mod180(center + 1)];
-        final double neighborAvg = 0.5 * (n1 + n2);
-        if (!(sol[center] > neighborAvg)) {
-            return sol;
-        }
-
-        final double[] out = sol.clone();
-        for (int d = -halfWidth; d <= halfWidth; d++) {
-            out[mod180(center + d)] = neighborAvg;
-        }
+        if (!changed) return sol;
 
         // Re-normalize to keep SOL as a probability-like distribution.
         final double s = sum(out);
@@ -305,8 +328,9 @@ public final class FibaMatlabProcessor {
 
     private static double[] extractOrientationSignal(double[][] imgFShifted, int w, int rmin, int rmax) {
         // MATLAB code builds A(i,j) for i=1..w-1, j=1..180 with bilinear sampling.
-        // Note MATLAB uses ImgF(xmin, ymin) with x computed from cos and y from sin.
-        // We mimic that indexing by treating the first index as x (row), second as y (col).
+        // In the MATLAB reference, theta is measured from the vertical axis (row direction):
+        // theta = 0 follows +row, theta = 90 follows +col.
+        // This matches later reconstruction code using atan(x/y) where x is column-offset and y is row-offset.
         final double[] B = new double[180];
 
         final int maxR = Math.min(w - 2, rmax - 1);
@@ -317,10 +341,11 @@ public final class FibaMatlabProcessor {
             final double theta = Math.toRadians(thetaDeg);
             for (int r = minR; r <= maxR; r++) {
 
-                final double x = r * Math.cos(theta) + w; // 0-based center
-                final double y = r * Math.sin(theta) + w;
+                // row and col coordinates in the fftshifted image.
+                final double row = r * Math.cos(theta) + w; // 0-based center
+                final double col = r * Math.sin(theta) + w;
 
-                final double v = bilinearSampleXY(imgFShifted, x, y);
+                final double v = bilinearSampleXY(imgFShifted, row, col);
                 sum += v;
             }
             B[thetaDeg] = sum;
@@ -494,6 +519,7 @@ public final class FibaMatlabProcessor {
     // ---------------------------------------------------------------------
 
     private static final class Reconstruction {
+        double[][] mask;
         double[][] imgR2;
         double[][][] overlay;
         int[] aind1;
@@ -513,7 +539,9 @@ public final class FibaMatlabProcessor {
             int ang1,
             int ang2,
             boolean removeFullHeightVerticalLine,
-            double removeFullHeightVerticalLineMinCoverage
+            double removeFullHeightVerticalLineMinCoverage,
+            boolean removeFullWidthHorizontalLine,
+            double removeFullWidthHorizontalLineMinCoverage
     ) {
         final int n = imgS.length;
         final int[] ainds = computeAinds(ang1, ang2);
@@ -531,7 +559,9 @@ public final class FibaMatlabProcessor {
                 maskedShifted[row][col] = imgFShifted[row][col] * mask[row][col];
             }
         }
-        final double[][] masked = fftShift(maskedShifted); // fftshift twice = inverse shift for even N
+        // Convert shifted spectrum back to the unshifted layout used by the FFT output arrays.
+        // MATLAB equivalent: masked = ifftshift(maskedShifted)
+        final double[][] masked = ifftShift(maskedShifted);
 
         // Combine masked amplitude with original phase and inverse FFT.
         final DoubleFFT_2D fft2 = new DoubleFFT_2D(n, n);
@@ -582,6 +612,10 @@ public final class FibaMatlabProcessor {
             suppressFullHeightVerticalLinesInPlace(imgR2, removeFullHeightVerticalLineMinCoverage);
         }
 
+        if (removeFullWidthHorizontalLine) {
+            suppressFullWidthHorizontalLinesInPlace(imgR2, removeFullWidthHorizontalLineMinCoverage);
+        }
+
         // Overlay: ImgS2(:,:,1) = imadjust(J)/255; ImgS2(:,:,2/3) = base - ImgR2
         final double[][][] overlay = new double[n][n][3];
         for (int row = 0; row < n; row++) {
@@ -594,6 +628,7 @@ public final class FibaMatlabProcessor {
         }
 
         final Reconstruction out = new Reconstruction();
+        out.mask = mask;
         out.imgR2 = imgR2;
         out.overlay = overlay;
         out.aind1 = aind1;
@@ -617,6 +652,28 @@ public final class FibaMatlabProcessor {
             }
             if (nonZero >= needed) {
                 for (int row = 0; row < nRows; row++) {
+                    img[row][col] = 0;
+                }
+            }
+        }
+    }
+
+    private static void suppressFullWidthHorizontalLinesInPlace(double[][] img, double minCoverageFrac) {
+        if (img == null || img.length == 0 || img[0].length == 0) return;
+        final int nRows = img.length;
+        final int nCols = img[0].length;
+
+        final double frac = Math.max(0.0, Math.min(1.0, minCoverageFrac));
+        final int needed = (int) Math.ceil(frac * nCols);
+        if (needed <= 0) return;
+
+        for (int row = 0; row < nRows; row++) {
+            int nonZero = 0;
+            for (int col = 0; col < nCols; col++) {
+                if (img[row][col] > 0) nonZero++;
+            }
+            if (nonZero >= needed) {
+                for (int col = 0; col < nCols; col++) {
                     img[row][col] = 0;
                 }
             }
@@ -805,28 +862,39 @@ public final class FibaMatlabProcessor {
         return v;
     }
 
-    private static double[] tukeyEdgeVector(int n, int w, double alpha) {
-        // faithful to fiba.m (which is written in terms of w and 1-indexed i)
-        if (alpha <= 0) {
-            double[] s = new double[n];
-            for (int i = 0; i < n; i++) s[i] = 1;
-            return s;
+    /**
+     * MATLAB tukeywin(n, alpha) equivalent (0<=alpha<=1), as a 1D window.
+     *
+     * Notes:
+     * - alpha=0 => rectangular window (all ones)
+     * - alpha=1 => Hann window
+     */
+    private static double[] tukeyWin1D(int n, double alpha) {
+        if (n <= 0) return new double[0];
+        if (n == 1) return new double[] { 1.0 };
+
+        final double a = Math.max(0.0, Math.min(1.0, alpha));
+        final double[] w = new double[n];
+        if (a <= 0.0) {
+            for (int i = 0; i < n; i++) w[i] = 1.0;
+            return w;
         }
 
-        final double[] s = new double[n];
-        for (int i1 = 1; i1 <= n; i1++) {
-            final double i = i1; // MATLAB-like
-            double v;
-            if (i <= alpha * w) {
-                v = 0.5 * (1.0 + Math.cos(Math.PI * (((i - 1.0) / alpha / w) - 1.0)));
-            } else if (i <= 2.0 * w * (1.0 - alpha / 2.0)) {
+        final double N = (double) (n - 1);
+        final double a2 = a / 2.0;
+        for (int i = 0; i < n; i++) {
+            final double t = i / N; // 0..1
+            final double v;
+            if (t < a2) {
+                v = 0.5 * (1.0 + Math.cos(Math.PI * ((2.0 * t / a) - 1.0)));
+            } else if (t <= (1.0 - a2)) {
                 v = 1.0;
             } else {
-                v = 0.5 * (1.0 + Math.cos(Math.PI * ((i / alpha / w) - (2.0 / alpha) - 1.0)));
+                v = 0.5 * (1.0 + Math.cos(Math.PI * ((2.0 * t / a) - (2.0 / a) + 1.0)));
             }
-            s[i1 - 1] = v;
+            w[i] = v;
         }
-        return s;
+        return w;
     }
 
     /**
@@ -953,6 +1021,28 @@ public final class FibaMatlabProcessor {
         return out;
     }
 
+    /**
+     * Inverse of {@link #fftShift(double[][])}. MATLAB equivalent: ifftshift().
+     *
+     * For even sizes, fftshift and ifftshift are the same; for odd sizes they differ by 1 sample.
+     */
+    private static double[][] ifftShift(double[][] in) {
+        final int n = in.length;
+        final int m = in[0].length;
+        final double[][] out = new double[n][m];
+        final int hn = (n + 1) / 2;
+        final int hm = (m + 1) / 2;
+
+        for (int i = 0; i < n; i++) {
+            final int ii = (i + hn) % n;
+            for (int j = 0; j < m; j++) {
+                final int jj = (j + hm) % m;
+                out[ii][jj] = in[i][j];
+            }
+        }
+        return out;
+    }
+
     private static double[][] rotate180(double[][] in) {
         final int n = in.length;
         final int m = in[0].length;
@@ -972,6 +1062,109 @@ public final class FibaMatlabProcessor {
         for (int i = 0; i < n; i++) {
             for (int j = 0; j < m; j++) {
                 out[m - 1 - j][i] = in[i][j];
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Build a stable 0..1 visualization of an fftshifted magnitude spectrum.
+     *
+     * Strategy:
+     * - use log(1 + power) to compress dynamic range
+     * - normalize by a high percentile (not max) to avoid a single spike dominating
+     * - suppress the DC center pixel for display
+     */
+    private static double[][] spectrumDisplay01(double[][] imgFShiftedMag) {
+        final int n = imgFShiftedMag.length;
+        final int m = imgFShiftedMag[0].length;
+        final double[][] v = new double[n][m];
+
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+
+        // Log-power transform
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                final double a = imgFShiftedMag[i][j];
+                final double p = a * a;
+                final double lv = Math.log1p(p);
+                v[i][j] = lv;
+                if (lv < min) min = lv;
+                if (lv > max) max = lv;
+            }
+        }
+
+        // Suppress DC for display so it doesn't dominate the contrast.
+        final int ci = n / 2;
+        final int cj = m / 2;
+        if (ci >= 0 && ci < n && cj >= 0 && cj < m) {
+            v[ci][cj] = min;
+        }
+
+        if (!(max > min)) {
+            return new double[n][m];
+        }
+
+        // Percentile-based contrast stretch (histogram) to avoid "clipping" effects.
+        final int bins = 2048;
+        final long[] hist = new long[bins];
+        final double scale = (bins - 1) / (max - min);
+        long total = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                int b = (int) ((v[i][j] - min) * scale);
+                if (b < 0) b = 0;
+                if (b >= bins) b = bins - 1;
+                hist[b]++;
+                total++;
+            }
+        }
+
+        // Use low/high percentiles as black/white points.
+        final double loFrac = 0.01;   // 1%
+        final double hiFrac = 0.999; // 99.9%
+        final long loCount = (long) Math.floor(total * loFrac);
+        final long hiCount = (long) Math.floor(total * hiFrac);
+
+        long c = 0;
+        int loBin = 0;
+        for (int b = 0; b < bins; b++) {
+            c += hist[b];
+            if (c >= loCount) {
+                loBin = b;
+                break;
+            }
+        }
+
+        c = 0;
+        int hiBin = bins - 1;
+        for (int b = 0; b < bins; b++) {
+            c += hist[b];
+            if (c >= hiCount) {
+                hiBin = b;
+                break;
+            }
+        }
+
+        if (hiBin <= loBin) {
+            loBin = 0;
+            hiBin = bins - 1;
+        }
+
+        final double lo = min + loBin / scale;
+        final double hi = min + hiBin / scale;
+        final double denom = (hi - lo);
+        final double[][] out = new double[n][m];
+        if (!(denom > 0)) {
+            return out;
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < m; j++) {
+                double t = (v[i][j] - lo) / denom;
+                if (t < 0) t = 0;
+                if (t > 1) t = 1;
+                out[i][j] = t;
             }
         }
         return out;

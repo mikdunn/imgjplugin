@@ -88,6 +88,7 @@
             <include>fftanalysis/imagej/FIBA_All_FromFolder.java</include>
             <include>fftanalysis/imagej/TileUtils.java</include>
             <include>fftanalysis/imagej/FIBA_Tile_ByContent.java</include>
+            <include>fftanalysis/imagej/FIBA_Tile_Montage.java</include>
           </includes>
 
           <!-- Always compile tests -->

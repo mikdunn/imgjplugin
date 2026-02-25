@@ -59,10 +59,15 @@ public class FibaMatlabProcessorTest {
         double[][] img = new double[n][n];
 
         // Desired fiber direction ~30 degrees.
+        // Note: the MATLAB-modeled implementation measures angles from the vertical axis
+        // (row direction): 0deg = vertical, 90deg = horizontal.
         double thetaDeg = 30.0;
         double theta = Math.toRadians(thetaDeg);
-        double fx = Math.cos(theta);
-        double fy = Math.sin(theta);
+        // Construct a grating whose wave-vector is at thetaDeg from vertical.
+        // In image coords (x=col, y=row), this means:
+        //   x component = sin(theta), y component = cos(theta).
+        double fx = Math.sin(theta);
+        double fy = Math.cos(theta);
         double freq = 8.0 / n; // cycles per pixel
 
         for (int y = 0; y < n; y++) {
@@ -82,13 +87,16 @@ public class FibaMatlabProcessorTest {
 
         FibaMatlabProcessor.Result r = FibaMatlabProcessor.process(img, p);
 
-        // Because the algorithm is based on FFT energy orientation, we allow a
-        // generous tolerance and accept the 180-degree symmetry.
+        // The FFT magnitude has peaks orthogonal to the grating (fiber) direction.
+        // The MATLAB-modeled pipeline reports the fiber direction, so we expect
+        // ~thetaDeg + 90 (mod 180). We allow a generous tolerance and accept the
+        // 180-degree symmetry.
         int pang = r.pAng;
-        int diff = angleDiffDeg(pang, (int) Math.round(thetaDeg));
-        int diffSym = angleDiffDeg(pang, (int) Math.round(thetaDeg + 180.0));
+        double expectedFiberDeg = thetaDeg + 90.0;
+        int diff = angleDiffDeg(pang, (int) Math.round(expectedFiberDeg));
+        int diffSym = angleDiffDeg(pang, (int) Math.round(expectedFiberDeg + 180.0));
         int best = Math.min(diff, diffSym);
-        assertTrue(best <= 20, "Expected pAng near " + thetaDeg + "deg, got " + pang);
+        assertTrue(best <= 20, "Expected pAng near " + expectedFiberDeg + "deg, got " + pang);
     }
 
     private static int angleDiffDeg(int a, int b) {
