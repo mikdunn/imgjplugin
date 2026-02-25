@@ -720,6 +720,7 @@ public final class FibaMatlabProcessor {
             int ang1,
             int ang2
     ) {
+        // Ported directly from fiba.m / imifft(), keeping MATLAB variable names and rot90 semantics.
         int ind = 0;
         int a1 = ang1;
         int a2 = ang2;
@@ -734,21 +735,26 @@ public final class FibaMatlabProcessor {
         final double[][] maskA = new double[n][n];
         final double[][] maskB = new double[n][n];
 
-        final double Rd = (rmax - rmin + 1);
+        final double rd = (rmax - rmin + 1);
 
-        // MATLAB computes bottom half then symmetrizes via rot90(...,2)
+        // MATLAB:
+        // for i=(w+1):(2*w)
+        //   for j=1:(2*w)
+        //     R = sqrt((j-w-0.5)^2 + (i-w-0.5)^2);
+        //     x = (R-rmin)/Rd;
+        //     theta = atan((j-w-0.5)/(i-w-0.5))/pi*180;
+        //     ... build MaskA, MaskB ...
         for (int i = w; i < n; i++) {
             final double iOff = (i - w + 0.5);
             for (int j = 0; j < n; j++) {
                 final double jOff = (j - w + 0.5);
 
-                final double R = Math.sqrt(jOff * jOff + iOff * iOff);
-                final double x = (R - rmin) / Rd;
+                final double r = Math.sqrt(jOff * jOff + iOff * iOff);
+                final double x = (r - rmin) / rd;
 
-                // MATLAB: theta = atan((j-w-0.5)/(i-w-0.5))/pi*180
-                double theta = Math.toDegrees(Math.atan2(jOff, iOff));
+                final double theta = Math.toDegrees(Math.atan(jOff / iOff));
 
-                // MaskA (radial Tukey)
+                // MaskA window in r-direction (Tukey-like)
                 if (x >= 0 && x <= (beta / 2.0)) {
                     maskA[i][j] = 0.5 * (1.0 + Math.cos((2.0 * Math.PI / beta) * (x - beta / 2.0)));
                 } else if (x > (beta / 2.0) && x <= (1.0 - beta / 2.0)) {
@@ -757,18 +763,8 @@ public final class FibaMatlabProcessor {
                     maskA[i][j] = 0.5 * (1.0 + Math.cos((2.0 * Math.PI / beta) * (x - 1.0 + beta / 2.0)));
                 }
 
-                // MaskB (angular Tukey)
-                int th1;
-                int th2;
-                if (ind == 1) {
-                    th2 = theta2 - 90;
-                    th1 = theta1 - 90;
-                } else {
-                    th2 = theta2;
-                    th1 = theta1;
-                }
-
-                final double th = (theta - th1) / (double) (th2 - th1);
+                // MaskB window in theta-direction (Tukey-like)
+                final double th = (theta - theta1) / (double) (theta2 - theta1);
                 if (th >= 0 && th <= (gamma / 2.0)) {
                     maskB[i][j] = 0.5 * (1.0 + Math.cos((2.0 * Math.PI / gamma) * (th - gamma / 2.0)));
                 } else if (th > (gamma / 2.0) && th <= (1.0 - gamma / 2.0)) {
@@ -779,17 +775,65 @@ public final class FibaMatlabProcessor {
             }
         }
 
-        final double[][] maskA2 = add(maskA, rotate180(maskA));
-        final double[][] maskB2 = add(maskB, rotate180(maskB));
+        // MATLAB:
+        // MaskA = MaskA + rot90(MaskA,2);
+        // MaskB = MaskB + rot90(MaskB,2);
+        final double[][] maskA2 = add(maskA, rot90(maskA, 2));
+        final double[][] maskB2 = add(maskB, rot90(maskB, 2));
 
-        final double[][] mask;
+        // MATLAB:
+        // if ind == 0
+        //   Mask = MaskA.*MaskB;
+        // else
+        //   Mask = MaskA.*rot90(MaskB);
+        // end
         if (ind == 0) {
-            mask = multiply(maskA2, maskB2);
-        } else {
-            mask = multiply(maskA2, rotate90CCW(maskB2));
+            return multiply(maskA2, maskB2);
+        }
+        return multiply(maskA2, rot90(maskB2, 1));
+    }
+
+    private static double[][] rot90(double[][] in, int k) {
+        // MATLAB rot90(A,k): rotates CCW by 90 degrees k times.
+        int kk = k % 4;
+        if (kk < 0) kk += 4;
+        if (kk == 0) {
+            final int n = in.length;
+            final int m = in[0].length;
+            final double[][] out = new double[n][m];
+            for (int i = 0; i < n; i++) {
+                System.arraycopy(in[i], 0, out[i], 0, m);
+            }
+            return out;
         }
 
-        return mask;
+        final int n = in.length;
+        final int m = in[0].length;
+        if (n != m) {
+            throw new IllegalArgumentException("rot90 expects a square matrix, got " + n + "x" + m);
+        }
+
+        final double[][] out = new double[n][n];
+        if (kk == 1) {
+            for (int i = 0; i < n; i++) {
+                for (int j = 0; j < n; j++) {
+                    out[n - 1 - j][i] = in[i][j];
+                }
+            }
+        } else if (kk == 2) {
+            for (int i = 0; i < n; i++) {
+                for (int j = 0; j < n; j++) {
+                    out[n - 1 - i][n - 1 - j] = in[i][j];
+                }
+            }
+        } else { // kk == 3
+            for (int i = 0; i < n; i++) {
+                for (int j = 0; j < n; j++) {
+                    out[j][n - 1 - i] = in[i][j];
+                }
+            }
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------------
