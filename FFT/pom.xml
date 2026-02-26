@@ -15,10 +15,10 @@
     <maven.compiler.target>1.8</maven.compiler.target>
 
     <!-- Pin versions for reproducible builds -->
-    <imagej1.version>1.54k</imagej1.version>
-    <jtransforms.version>3.1</jtransforms.version>
-    <jlargearrays.version>1.5</jlargearrays.version>
-    <commons-math3.version>3.5</commons-math3.version>
+    <imagej1.version>1.54p</imagej1.version>
+    <jtransforms.version>3.2</jtransforms.version>
+    <jlargearrays.version>1.6</jlargearrays.version>
+    <commons-math3.version>3.6.1</commons-math3.version>
   </properties>
 
   <dependencies>
@@ -54,7 +54,7 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
-      <version>5.10.2</version>
+      <version>5.13.4</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -74,8 +74,29 @@
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.6.1</version>
+        <executions>
+          <execution>
+            <id>enforce-maven</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.6.3,)</version>
+                </requireMavenVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.11.0</version>
+        <version>3.15.0</version>
         <configuration>
           <source>${maven.compiler.source}</source>
           <target>${maven.compiler.target}</target>
@@ -101,7 +122,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
+        <version>3.5.5</version>
         <configuration>
           <useModulePath>false</useModulePath>
         </configuration>
@@ -111,7 +132,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>3.5.1</version>
+        <version>3.6.1</version>
         <executions>
           <execution>
             <phase>package</phase>

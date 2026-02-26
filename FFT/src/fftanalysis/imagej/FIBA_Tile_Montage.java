@@ -77,7 +77,10 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         opts.savePerTilePanels = true;
         opts.saveSolPlots = true;
         opts.saveCsv = true;
-        opts.wrap90 = true;
+        opts.wrap90 = false;
+        // Report/display fiber-axis direction by default: pAng_fiber = (pAng_adj + 90) mod 180.
+        // This aligns reported orientation with the visible fibril direction convention.
+        opts.reportFiberAxis = true;
         // Draw axes/angle labels onto the saved per-tile polar image.
         // (The montage uses a compact grayscale polar panel without labels.)
         opts.polarAxes = true;
@@ -285,7 +288,7 @@ public class FIBA_Tile_Montage implements PlugInFilter {
             try {
                 final File csvFile = new File(outDir, baseName + "_tile_results.csv");
                 csv = new CsvWriter(csvFile);
-                csv.writeLine("tile_id,left,top,size,pAng,pAng_adj");
+                csv.writeLine("tile_id,left,top,size,pAng,pAng_adj,pAng_fiber_axis");
             } catch (Exception e) {
                 IJ.log("[TILE_MONTAGE] WARNING: failed to create CSV: " + e);
             }
@@ -327,12 +330,14 @@ public class FIBA_Tile_Montage implements PlugInFilter {
 
             double p = res.pAng;
             if (opts.wrap90 && p > 90) p = p - 180;
-            pangAdj[i] = p;
+            final double pFiber = normalizeAxis180(p + 90.0);
+            final double pReported = opts.reportFiberAxis ? pFiber : p;
+            pangAdj[i] = pReported;
 
             if (csv != null) {
                 try {
                     csv.writeLine(
-                            (i + 1) + "," + left + "," + top + "," + tileSize + "," + res.pAng + "," + p
+                            (i + 1) + "," + left + "," + top + "," + tileSize + "," + res.pAng + "," + p + "," + pFiber
                     );
                 } catch (Exception e) {
                     IJ.log("[TILE_MONTAGE] WARNING: failed to write CSV row: " + e);
@@ -397,7 +402,7 @@ public class FIBA_Tile_Montage implements PlugInFilter {
             blitGray(montage, res.imgR2, (tileSize + gap) * 3, y0);
 
             if (opts.debug) {
-                debugToFile(outDir, "[TILE_MONTAGE] tile=" + (i + 1) + " y=" + top + " pAng=" + res.pAng + " pAdj=" + p);
+                debugToFile(outDir, "[TILE_MONTAGE] tile=" + (i + 1) + " y=" + top + " pAng=" + res.pAng + " pAdj=" + p + " pFiber=" + pFiber + " pReported=" + pReported);
             }
         }
 
@@ -408,7 +413,7 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
 
         if (opts.savePlot) {
-            final ImagePlus plotImp = buildTilePlot(baseName + "_tile_profile", pangAdj, opts.wrap90);
+            final ImagePlus plotImp = buildTilePlot(baseName + "_tile_profile", pangAdj, opts.wrap90, opts.reportFiberAxis);
             final File outFile = new File(outDir, baseName + "_tile_profile.jpg");
             new FileSaver(plotImp).saveAsJpeg(outFile.getAbsolutePath());
         }
@@ -453,6 +458,7 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         boolean saveSolPlots;
         boolean saveCsv;
         boolean wrap90;
+        boolean reportFiberAxis;
         boolean debug;
 
         boolean saveAny() {
@@ -504,6 +510,11 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         out.saveSolPlots = parseBoolean(firstNonNull(kv.get("savesol"), kv.get("savesolplots"), kv.get("solplots")), out.saveSolPlots);
         out.saveCsv = parseBoolean(firstNonNull(kv.get("savecsv"), kv.get("csv"), null), out.saveCsv);
         out.wrap90 = parseBoolean(kv.get("wrap90"), out.wrap90);
+        out.reportFiberAxis = parseBoolean(firstNonNull(
+            kv.get("reportfiberaxis"),
+            kv.get("fiberaxis"),
+            kv.get("add90forreport")
+        ), out.reportFiberAxis);
         out.debug = parseBoolean(kv.get("debug"), out.debug);
 
         // FIBA params
@@ -589,7 +600,7 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         return (tmp[mid - 1] + tmp[mid]) / 2;
     }
 
-    private static ImagePlus buildTilePlot(String title, double[] pangAdj, boolean wrap90) {
+    private static ImagePlus buildTilePlot(String title, double[] pangAdj, boolean wrap90, boolean reportFiberAxis) {
         final int n = pangAdj.length;
         final double[] x = new double[n];
         final double[] y = new double[n];
@@ -605,7 +616,13 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
         final double mean = (count == 0) ? Double.NaN : (sum / count);
 
-        final Plot plot = new Plot(title, "Crop Square ID", wrap90 ? "Fibril Orientation (deg, adj)" : "Fibril Orientation (deg)", x, y);
+        final String yLabel;
+        if (reportFiberAxis) {
+            yLabel = wrap90 ? "Fiber Axis (deg, +90 adj/wrapped)" : "Fiber Axis (deg, +90 adj)";
+        } else {
+            yLabel = wrap90 ? "Fibril Orientation (deg, adj)" : "Fibril Orientation (deg)";
+        }
+        final Plot plot = new Plot(title, "Crop Square ID", yLabel, x, y);
         plot.setLineWidth(2);
         plot.setColor(Color.black);
 
@@ -641,11 +658,12 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
 
         final Plot plot = new Plot(title, "Angle (deg)", "SOL (norm)", x, y);
-        plot.setLineWidth(2);
+        plot.setLineWidth(1);
         plot.setColor(Color.black);
         plot.add("line", x, y);
 
         plot.setColor(Color.red);
+        plot.setLineWidth(4);
         plot.add("line", x, yBand);
 
         return plot.getImagePlus();
@@ -676,12 +694,29 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         for (int i = 0; i < 180; i++) if (sol180[i] > max) max = sol180[i];
         if (!(max > 0)) max = 1;
 
+        final int a1 = mod180(ang1);
+        final int a2 = mod180(ang2);
         final boolean[] inBand = computeInBand(ang1, ang2);
 
         final double[][] out = new double[size][size];
         final double cx = (size - 1) / 2.0;
         final double cy = (size - 1) / 2.0;
         final double R = (size / 2.0) - 2.0;
+
+        // Paint a visible wedge background for the selected peak band so highlighting is obvious.
+        for (int deg = 0; deg < 360; deg++) {
+            final int a = deg % 180;
+            if (!isInBandAngle(a, a1, a2)) continue;
+            final double theta = Math.toRadians(deg);
+            final double dirRow = Math.cos(theta);
+            final double dirCol = Math.sin(theta);
+            for (int r = 0; r <= (int) Math.round(R); r++) {
+                final int yy = (int) Math.round(cy + dirRow * r);
+                final int xx = (int) Math.round(cx + dirCol * r);
+                if (yy < 0 || yy >= size || xx < 0 || xx >= size) continue;
+                if (out[yy][xx] < 0.28) out[yy][xx] = 0.28;
+            }
+        }
 
         // Draw SOL rays (0..359) using mirrored SOL (SOL is 180-periodic)
         for (int deg = 0; deg < 360; deg++) {
@@ -694,7 +729,7 @@ public class FIBA_Tile_Montage implements PlugInFilter {
             final double dirCol = Math.sin(theta);
 
             final double rLen = v * R;
-            final double intensity = inBand[a] ? 1.0 : 0.35;
+            final double intensity = inBand[a] ? 1.0 : 0.10;
 
             for (int r = 0; r <= (int) Math.round(rLen); r++) {
                 final int yy = (int) Math.round(cy + dirRow * r);
@@ -714,8 +749,6 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
 
         // Draw band boundary rays for ang1 and ang2 (and +180)
-        final int a1 = mod180(ang1);
-        final int a2 = mod180(ang2);
         drawPolarRay(out, cx, cy, R, a1, 1.0);
         drawPolarRay(out, cx, cy, R, a2, 1.0);
         drawPolarRay(out, cx, cy, R, a1 + 180, 1.0);
@@ -737,9 +770,21 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
     }
 
+    private static boolean isInBandAngle(int angle0to179, int a1, int a2) {
+        final int a = mod180(angle0to179);
+        if (a2 >= a1) return a >= a1 && a <= a2;
+        return a >= a1 || a <= a2;
+    }
+
     private static int mod180(int a) {
         int m = a % 180;
         if (m < 0) m += 180;
+        return m;
+    }
+
+    private static double normalizeAxis180(double a) {
+        double m = a % 180.0;
+        if (m < 0) m += 180.0;
         return m;
     }
 

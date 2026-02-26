@@ -82,10 +82,7 @@ public class FIBA_Orientation implements PlugInFilter {
         // Artifact suppression is OFF by default. We will deal with artifacts ONLY with alpha values.
         params.suppressAngleSpike = false;
         params.removeFullHeightVerticalLine = false;
-<<<<<<< HEAD
         params.removeFullWidthHorizontalLine = false;
-=======
->>>>>>> 911f54b20848da92e44447a101be4c4fabe1a436
 
         final OutputOptions outOpts = new OutputOptions();
         outOpts.saveOutputs = true;
