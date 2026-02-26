@@ -1,0 +1,4 @@
+/.quarto/
+/.mamba/
+/_site/
+**/*.quarto_ipynb

@@ -1,0 +1,20 @@
+project:
+  type: website
+  output-dir: _site
+
+author: ""
+
+toc: true
+
+format:
+  html:
+    theme: cosmo
+    code-fold: true
+
+execute:
+  # Default to NOT executing code during render, so the doc builds even on machines
+  # without Python/Jupyter installed. Flip to true when your environment is ready.
+  eval: false
+  echo: true
+  warning: false
+  error: false

@@ -1,0 +1,20 @@
+---
+title: "Java kernel smoketest (Quarto + BeakerX)"
+jupyter: java
+format:
+  html:
+    toc: true
+execute:
+  echo: true
+  warning: false
+  error: false
+---
+
+This document executes using the **BeakerX Java** kernel (kernelspec name: `java`).
+
+```{java}
+System.out.println("Hello from Quarto running on the Java kernel!");
+int a = 1;
+int b = 2;
+System.out.println(a + b);
+```
