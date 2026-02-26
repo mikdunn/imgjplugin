@@ -1,4 +1,6 @@
 /.quarto/
 /.mamba/
 /_site/
+/tools/micromamba/
+*.Rhistory
 **/*.quarto_ipynb
