@@ -1,0 +1,7 @@
+dataset_dir,family,n_tiles,sep_mean,corr_mean,score_mean,theta_mean
+generated_from_source,FFT,10,0.27010328,0.51298601,0.34296810,5.40891459
+generated_from_source,FFT-like/Wavelet,30,0.02558712,0.87917876,0.28166461,5.40891459
+generated_from_source,SVD,30,0.01926269,0.89111206,0.28081751,5.40891459
+generated_from_source_picture1,FFT,10,0.30835928,0.50927821,0.36863496,63.85158222
+generated_from_source_picture1,FFT-like/Wavelet,30,0.09914854,0.89463931,0.33779577,63.85158222
+generated_from_source_picture1,SVD,30,0.06878552,0.88413928,0.31339165,63.85158222

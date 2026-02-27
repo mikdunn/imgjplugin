@@ -1,0 +1,7 @@
+method,sepMean,corrMean,score,nTiles
+"SVD Energy-99%",0.024156,0.872077,0.278533,20
+"SVD Rank-20",0.023911,0.858270,0.274218,20
+"CNN-style ConvBank (untrained)",0.035667,0.527164,0.183116,20
+"Graph Laplacian Spectral (corrected)",0.041221,0.057843,0.046208,20
+"Graph+SVD Hybrid",0.026837,0.054250,0.035061,20
+"Hypergraph Spectral (2x2 edges)",-0.017503,-0.032867,-0.022112,20

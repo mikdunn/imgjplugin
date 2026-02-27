@@ -1,0 +1,61 @@
+dataset,tile_id,method,lambda2,fiedler_std,kmodes,sep,corr
+C15D5P001_1,1,"Graph Laplacian Spectral (corrected)",0.102599,0.099499,10,-0.027353,0.045234
+C15D5P001_1,1,"Hypergraph Spectral (2x2 edges)",0.190911,0.097059,10,-0.055989,0.110854
+C15D5P001_1,1,"Graph+SVD Hybrid",0.102599,0.099499,8,-0.048724,0.048748
+C15D5P001_1,2,"Graph Laplacian Spectral (corrected)",0.210304,0.097143,10,0.030701,0.042529
+C15D5P001_1,2,"Hypergraph Spectral (2x2 edges)",0.248909,0.097983,10,-0.258500,-0.045231
+C15D5P001_1,2,"Graph+SVD Hybrid",0.210304,0.097143,8,0.033264,0.045094
+C15D5P001_1,3,"Graph Laplacian Spectral (corrected)",0.318684,0.096991,10,0.157517,0.052043
+C15D5P001_1,3,"Hypergraph Spectral (2x2 edges)",0.201396,0.097982,10,-0.220891,-0.077415
+C15D5P001_1,3,"Graph+SVD Hybrid",0.318684,0.096991,8,0.067315,0.079973
+C15D5P001_1,4,"Graph Laplacian Spectral (corrected)",0.190395,0.099499,10,-0.000481,-0.018192
+C15D5P001_1,4,"Hypergraph Spectral (2x2 edges)",0.239483,0.097983,10,-0.095563,-0.047614
+C15D5P001_1,4,"Graph+SVD Hybrid",0.190395,0.099499,8,0.009660,-0.001932
+C15D5P001_1,5,"Graph Laplacian Spectral (corrected)",0.200900,0.097105,10,0.287479,0.093547
+C15D5P001_1,5,"Hypergraph Spectral (2x2 edges)",0.191555,0.097049,10,0.198979,0.019801
+C15D5P001_1,5,"Graph+SVD Hybrid",0.200900,0.097105,8,0.272216,0.100459
+C15D5P001_1,6,"Graph Laplacian Spectral (corrected)",0.049421,0.099499,10,0.105030,0.026832
+C15D5P001_1,6,"Hypergraph Spectral (2x2 edges)",0.210207,0.097986,10,0.307111,-0.013803
+C15D5P001_1,6,"Graph+SVD Hybrid",0.049421,0.099499,8,0.121078,0.026301
+C15D5P001_1,7,"Graph Laplacian Spectral (corrected)",0.264481,0.096980,10,0.053601,-0.008166
+C15D5P001_1,7,"Hypergraph Spectral (2x2 edges)",0.251567,0.097981,10,0.031436,-0.126306
+C15D5P001_1,7,"Graph+SVD Hybrid",0.264481,0.096980,8,-0.069239,-0.066278
+C15D5P001_1,8,"Graph Laplacian Spectral (corrected)",0.308279,0.098012,10,0.029792,0.072151
+C15D5P001_1,8,"Hypergraph Spectral (2x2 edges)",0.254312,0.097981,10,-0.140774,-0.151110
+C15D5P001_1,8,"Graph+SVD Hybrid",0.308279,0.098012,8,0.028919,0.078743
+C15D5P001_1,9,"Graph Laplacian Spectral (corrected)",0.035550,0.098995,10,0.014747,0.063772
+C15D5P001_1,9,"Hypergraph Spectral (2x2 edges)",0.174140,0.097025,10,-0.119525,-0.134635
+C15D5P001_1,9,"Graph+SVD Hybrid",0.035550,0.098995,8,-0.048045,0.038188
+C15D5P001_1,10,"Graph Laplacian Spectral (corrected)",0.186941,0.097531,10,-0.043468,0.195847
+C15D5P001_1,10,"Hypergraph Spectral (2x2 edges)",0.226689,0.097995,10,-0.101592,0.166736
+C15D5P001_1,10,"Graph+SVD Hybrid",0.186941,0.097531,8,-0.036368,0.156746
+Picture1,1,"Graph Laplacian Spectral (corrected)",0.033688,0.099499,10,-0.069439,0.052536
+Picture1,1,"Hypergraph Spectral (2x2 edges)",0.254645,0.097982,10,-0.084924,-0.066205
+Picture1,1,"Graph+SVD Hybrid",0.033688,0.099499,8,-0.071040,0.064796
+Picture1,2,"Graph Laplacian Spectral (corrected)",0.051522,0.098995,10,0.094178,0.044112
+Picture1,2,"Hypergraph Spectral (2x2 edges)",0.239332,0.097982,10,-0.007510,-0.037061
+Picture1,2,"Graph+SVD Hybrid",0.051522,0.098995,8,0.094458,0.047949
+Picture1,3,"Graph Laplacian Spectral (corrected)",0.000766,0.098995,10,0.011093,0.023322
+Picture1,3,"Hypergraph Spectral (2x2 edges)",0.203861,0.097986,10,-0.001976,-0.088396
+Picture1,3,"Graph+SVD Hybrid",0.000766,0.098995,8,0.015295,0.029626
+Picture1,4,"Graph Laplacian Spectral (corrected)",0.282232,0.097547,10,-0.075983,-0.010197
+Picture1,4,"Hypergraph Spectral (2x2 edges)",0.259444,0.097981,10,0.050882,-0.065269
+Picture1,4,"Graph+SVD Hybrid",0.282232,0.097547,8,-0.060299,-0.002765
+Picture1,5,"Graph Laplacian Spectral (corrected)",0.040287,0.098584,10,0.017228,0.053785
+Picture1,5,"Hypergraph Spectral (2x2 edges)",0.264676,0.097981,10,0.098063,0.024656
+Picture1,5,"Graph+SVD Hybrid",0.040287,0.098584,8,0.016101,0.052484
+Picture1,6,"Graph Laplacian Spectral (corrected)",0.108123,0.099499,10,0.125187,0.163994
+Picture1,6,"Hypergraph Spectral (2x2 edges)",0.265290,0.097981,10,0.045752,-0.006861
+Picture1,6,"Graph+SVD Hybrid",0.108123,0.099499,8,0.093011,0.165384
+Picture1,7,"Graph Laplacian Spectral (corrected)",0.030569,0.099499,10,0.014757,0.073018
+Picture1,7,"Hypergraph Spectral (2x2 edges)",0.248943,0.097981,10,-0.113283,0.014241
+Picture1,7,"Graph+SVD Hybrid",0.030569,0.099499,8,0.014757,0.073018
+Picture1,8,"Graph Laplacian Spectral (corrected)",0.012120,0.098508,10,-0.006259,0.087179
+Picture1,8,"Hypergraph Spectral (2x2 edges)",0.211321,0.097284,10,0.000387,0.038129
+Picture1,8,"Graph+SVD Hybrid",0.012120,0.098508,8,0.001407,0.090893
+Picture1,9,"Graph Laplacian Spectral (corrected)",0.011580,0.098995,10,0.110534,0.037518
+Picture1,9,"Hypergraph Spectral (2x2 edges)",0.232217,0.097004,10,0.204565,-0.064499
+Picture1,9,"Graph+SVD Hybrid",0.011580,0.098995,8,0.114044,0.041652
+Picture1,10,"Graph Laplacian Spectral (corrected)",0.067127,0.099499,10,-0.004435,0.065996
+Picture1,10,"Hypergraph Spectral (2x2 edges)",0.248835,0.097981,10,-0.086702,-0.107358
+Picture1,10,"Graph+SVD Hybrid",0.067127,0.099499,8,-0.011074,0.015912

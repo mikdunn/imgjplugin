@@ -1,0 +1,4 @@
+method,sepMean,corrMean,score,nTiles
+"SVD Energy-99%",0.024156,0.872077,0.278533,20
+"SVD Rank-20",0.023911,0.858270,0.274218,20
+"CNN-style ConvBank + SVD Rank-40",0.039850,0.619973,0.213887,20
