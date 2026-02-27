@@ -77,10 +77,19 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         opts.savePerTilePanels = true;
         opts.saveSolPlots = true;
         opts.saveCsv = true;
+<<<<<<< HEAD
+        // Do not apply angle-range wrapping by default.
+        // Keep raw processor angle unless user explicitly enables wrap90.
         opts.wrap90 = false;
         // Report/display fiber-axis direction by default: pAng_fiber = (pAng_adj + 90) mod 180.
         // This aligns reported orientation with the visible fibril direction convention.
         opts.reportFiberAxis = true;
+=======
+        opts.wrap90 = false;
+        // Report/display fiber-axis direction by default: pAng_fiber = (pAng_adj + 90) mod 180.
+        // This aligns reported orientation with the visible fibril direction convention.
+        opts.reportFiberAxis = true;
+>>>>>>> e1bc33ead6bb7cfda0183836c3fa50fb6ecc23cc
         // Draw axes/angle labels onto the saved per-tile polar image.
         // (The montage uses a compact grayscale polar panel without labels.)
         opts.polarAxes = true;

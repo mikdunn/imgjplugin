@@ -70,3 +70,18 @@ If you don’t want to click through menus each time, use the included macro:
 
 - Run `macros/run_fiba_orientation_outputs.ijm` via `Plugins > Macros > Run...`
 - It runs `FIBA Orientation (MATLAB)` on the currently active image and saves the standard outputs.
+
+## Notebook environment preflight (timeout prevention)
+
+`notebooks/fiba_tile_montage_pipeline.ipynb` now includes a **preflight cell** that checks:
+
+- Required commands on `PATH`: `python`, `java`, `quarto`, `jupyter`, `mvn`
+- Required Python packages: `numpy`, `matplotlib`, `Pillow`, `tifffile`
+
+Use the setup script before running the notebook pipeline cells:
+
+- `notebooks/setup_notebook_env.ps1`
+- `notebooks/requirements-fiba-notebook.txt`
+
+The script upgrades/install Python dependencies and adds the Python user `Scripts` folder to your user `PATH` (so `jupyter` is discoverable).
+If `mvn` is still missing after setup, install Maven and add its `bin` directory to `PATH`.

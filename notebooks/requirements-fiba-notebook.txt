@@ -1,0 +1,13 @@
+# Notebook runtime dependencies for notebooks/fiba_tile_montage_pipeline.ipynb
+# Install with: python -m pip install --upgrade -r notebooks/requirements-fiba-notebook.txt
+
+# Jupyter runtime
+jupyterlab
+notebook
+ipykernel
+
+# Visualization + image IO used in notebook cells
+numpy
+matplotlib
+pillow
+tifffile
