@@ -4,3 +4,10 @@
 /tools/micromamba/
 *.Rhistory
 **/*.quarto_ipynb
+
+# Generated notebook outputs and exports
+/notebooks/_assets/
+/notebooks/*.html
+
+# Java build artifacts
+/FFT/target/
