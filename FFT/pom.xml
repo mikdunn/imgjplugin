@@ -110,6 +110,8 @@
             <include>fftanalysis/imagej/TileUtils.java</include>
             <include>fftanalysis/imagej/FIBA_Tile_ByContent.java</include>
             <include>fftanalysis/imagej/FIBA_Tile_Montage.java</include>
+            <include>fftanalysis/imagej/FIBA_Wavelet_Process.java</include>
+            <include>fftanalysis/imagej/FIBA_SVD_Process.java</include>
           </includes>
 
           <!-- Always compile tests -->

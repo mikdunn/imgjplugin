@@ -50,12 +50,8 @@ If you opened this repo using the VS Code **GitHub Repositories** virtual filesy
 
 Two ways to build:
 
-1. Use the GitHub Actions artifact (no local Maven needed):
-	- Commit + push your changes (a push to GitHub triggers the workflow).
-	- In GitHub, go to **Actions** → workflow **build** → open the latest run.
-	- Under **Artifacts**, download `imgjplugin-fft`.
-	- Unzip it and use the `FFT/target/*-shaded.jar` inside.
-2. Clone the repo locally (so it exists on disk), install Maven, then run `mvn test package` in `FFT/`.
+- Use the GitHub Actions artifact (no local Maven needed): commit + push your changes, open the latest **build** workflow run in GitHub **Actions**, download the `imgjplugin-fft` artifact, then unzip and use `FFT/target/*-shaded.jar`.
+- Clone the repo locally (so it exists on disk), install Maven, then run `mvn test package` in `FFT/`.
 
 ### Running in Fiji / getting output images
 
@@ -63,6 +59,29 @@ Two ways to build:
 2. Restart Fiji.
 3. Run the plugin from `Plugins > FFT > FIBA Orientation (MATLAB)`.
 4. The plugin writes outputs alongside the input image (filenames like `*_rec.jpg` and `*_dat.jpg`).
+
+### Quick self-test checklist (jar install)
+
+Use this checklist after copying a new jar into Fiji to confirm the install is healthy and repeatable.
+
+- [ ] **Jar picked up by Fiji**: after restart, `Plugins > FFT` shows:
+  - `FIBA Orientation (MATLAB)`
+  - `FIBA Tile Montage (MATLAB)`
+- [ ] **Orientation plugin runs**:
+  - Open any test grayscale image.
+  - Run `Plugins > FFT > FIBA Orientation (MATLAB)`.
+  - Confirm output images and Results metrics are produced (no error dialog).
+- [ ] **Tile montage plugin file-picker path works**:
+  - Ensure no image is open (or close all images).
+  - Run `Plugins > FFT > FIBA Tile Montage (MATLAB)`.
+  - Confirm a file-selection popup appears; choose an image.
+- [ ] **Tile montage outputs are visible in Fiji**:
+  - Confirm windows appear for overlay, montage, and tile profile plot.
+- [ ] **Tile montage outputs are saved beside input**:
+  - Confirm folder `<inputBaseName>_fiba_tile_montage` is created next to the selected image.
+  - Confirm expected files exist inside (e.g., `*_tile_boxes.jpg`, `*_tile_montage.jpg`, `*_tile_profile.jpg`, `*_tile_results.csv`).
+- [ ] **No regression on rerun**:
+  - Run each plugin a second time on the same image and confirm outputs regenerate without runtime errors.
 
 ### One-click macro runner
 

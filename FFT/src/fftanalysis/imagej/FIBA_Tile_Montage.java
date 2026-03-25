@@ -7,6 +7,7 @@ import ij.gui.Plot;
 import ij.io.DirectoryChooser;
 import ij.io.FileInfo;
 import ij.io.FileSaver;
+import ij.io.OpenDialog;
 import ij.plugin.filter.PlugInFilter;
 import ij.process.ByteProcessor;
 import ij.process.ColorProcessor;
@@ -20,7 +21,9 @@ import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -45,23 +48,28 @@ public class FIBA_Tile_Montage implements PlugInFilter {
     public int setup(String arg, ImagePlus imp) {
         this.imp = imp;
         this.argOptions = arg;
-        return DOES_ALL;
+        return DOES_ALL + NO_IMAGE_REQUIRED;
     }
 
     @Override
     public void run(ImageProcessor ip) {
         if (imp == null || ip == null) {
-            IJ.error("No image");
-            return;
+            final ImagePlus opened = promptForInputImage();
+            if (opened == null) {
+                IJ.error("No image selected");
+                return;
+            }
+            imp = opened;
+            ip = imp.getProcessor();
         }
 
         final boolean headless = GraphicsEnvironment.isHeadless();
         final boolean interactiveUI = !headless && IJ.getInstance() != null;
 
         Options opts = new Options();
-        // IMPORTANT: keep output location stable for troubleshooting.
-        // Default to the user's Downloads folder unless outputDir=... is explicitly provided.
-        opts.outputDirOverride = defaultDownloadsDir();
+        // Default output is handled in determineOutputDir(...):
+        // create a folder next to the analyzed source image.
+        opts.outputDirOverride = null;
         opts.threshold = 0;
         opts.colFrac = 0.10;
         opts.rowFrac = 0.10;
@@ -77,19 +85,10 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         opts.savePerTilePanels = true;
         opts.saveSolPlots = true;
         opts.saveCsv = true;
-<<<<<<< HEAD
-        // Do not apply angle-range wrapping by default.
-        // Keep raw processor angle unless user explicitly enables wrap90.
         opts.wrap90 = false;
         // Report/display fiber-axis direction by default: pAng_fiber = (pAng_adj + 90) mod 180.
         // This aligns reported orientation with the visible fibril direction convention.
         opts.reportFiberAxis = true;
-=======
-        opts.wrap90 = false;
-        // Report/display fiber-axis direction by default: pAng_fiber = (pAng_adj + 90) mod 180.
-        // This aligns reported orientation with the visible fibril direction convention.
-        opts.reportFiberAxis = true;
->>>>>>> e1bc33ead6bb7cfda0183836c3fa50fb6ecc23cc
         // Draw axes/angle labels onto the saved per-tile polar image.
         // (The montage uses a compact grayscale polar panel without labels.)
         opts.polarAxes = true;
@@ -145,7 +144,7 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
 
         final String baseName = stripExtension(imp.getTitle());
-        final String outputDir = determineOutputDir(imp, opts, interactiveUI);
+        final String outputDir = determineOutputDir(imp, baseName, opts, interactiveUI);
         if (opts.saveAny() && (outputDir == null || outputDir.trim().isEmpty())) {
             IJ.error("No output directory available (set outputDir=... in options)");
             return;
@@ -279,6 +278,9 @@ public class FIBA_Tile_Montage implements PlugInFilter {
                 final ImagePlus overlayImp = new ImagePlus(baseName + "_tile_boxes", overlay);
                 final File outFile = new File(outDir, baseName + "_tile_boxes.jpg");
                 new FileSaver(overlayImp).saveAsJpeg(outFile.getAbsolutePath());
+                if (interactiveUI) {
+                    overlayImp.show();
+                }
             } catch (Exception e) {
                 IJ.log("[TILE_MONTAGE] WARNING: failed to write overlay: " + e);
             }
@@ -419,12 +421,18 @@ public class FIBA_Tile_Montage implements PlugInFilter {
             final ImagePlus montageImp = new ImagePlus(baseName + "_tile_montage", montage);
             final File outFile = new File(outDir, baseName + "_tile_montage.jpg");
             new FileSaver(montageImp).saveAsJpeg(outFile.getAbsolutePath());
+            if (interactiveUI) {
+                montageImp.show();
+            }
         }
 
         if (opts.savePlot) {
             final ImagePlus plotImp = buildTilePlot(baseName + "_tile_profile", pangAdj, opts.wrap90, opts.reportFiberAxis);
             final File outFile = new File(outDir, baseName + "_tile_profile.jpg");
             new FileSaver(plotImp).saveAsJpeg(outFile.getAbsolutePath());
+            if (interactiveUI) {
+                plotImp.show();
+            }
         }
 
         if (csv != null) {
@@ -797,14 +805,16 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         return m;
     }
 
-    private static String determineOutputDir(ImagePlus imp, Options opts, boolean interactiveUI) {
+    private static String determineOutputDir(ImagePlus imp, String baseName, Options opts, boolean interactiveUI) {
         if (opts.outputDirOverride != null && opts.outputDirOverride.trim().length() > 0) {
-            return opts.outputDirOverride;
+            return appendRunTimestampDir(opts.outputDirOverride);
         }
 
         final FileInfo fi = imp.getOriginalFileInfo();
         if (fi != null && fi.directory != null) {
-            return fi.directory;
+            final File baseDir = new File(fi.directory);
+            final File rootOut = new File(baseDir, baseName + "_fiba_tile_montage");
+            return appendRunTimestampDir(rootOut.getAbsolutePath());
         }
 
         if (!interactiveUI) {
@@ -812,7 +822,30 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
 
         final DirectoryChooser dc = new DirectoryChooser("Choose output folder");
-        return dc.getDirectory();
+        final String selectedDir = dc.getDirectory();
+        if (selectedDir == null || selectedDir.trim().isEmpty()) {
+            return null;
+        }
+        final File rootOut = new File(selectedDir, baseName + "_fiba_tile_montage");
+        return appendRunTimestampDir(rootOut.getAbsolutePath());
+    }
+
+    private static String appendRunTimestampDir(String rootOutputDir) {
+        if (rootOutputDir == null || rootOutputDir.trim().isEmpty()) {
+            return rootOutputDir;
+        }
+        final String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        return new File(rootOutputDir, stamp).getAbsolutePath();
+    }
+
+    private static ImagePlus promptForInputImage() {
+        final OpenDialog od = new OpenDialog("Select image to analyze", null);
+        final String dir = od.getDirectory();
+        final String name = od.getFileName();
+        if (dir == null || name == null) {
+            return null;
+        }
+        return IJ.openImage(new File(dir, name).getAbsolutePath());
     }
 
     /**
