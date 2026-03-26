@@ -90,6 +90,9 @@ public class FIBA_Orientation implements PlugInFilter {
         outOpts.showComposite = true;
         outOpts.showPlot = true;
         outOpts.plotApplyTukey = false;
+        outOpts.wrap90 = false;
+        // Default to polar/SOL angle frame for consistency with plotted coordinates.
+        outOpts.reportFiberAxis = false;
         // Fixed polar scaling so amplitude differences remain visible across alpha sweeps.
         // Typical SOL peaks are on the order of 0.01–0.03.
         outOpts.polarScaleMax = 0.03;
@@ -175,8 +178,16 @@ public class FIBA_Orientation implements PlugInFilter {
             return;
         }
 
+        double pAngAdj = res.pAng;
+        if (outOpts.wrap90 && pAngAdj > 90) {
+            pAngAdj = pAngAdj - 180;
+        }
+        final double pAngFiber = normalizeAxis180(pAngAdj + 90.0);
+        final double pAngReported = outOpts.reportFiberAxis ? pAngFiber : pAngAdj;
+
         // Output logging like MATLAB disp()
-        IJ.log("Weighted average fiber: " + res.pAng + " degree");
+        IJ.log("Weighted average orientation (polar frame): " + pAngReported + " degree");
+        IJ.log("Orientation details (raw/adj/fiber-axis): " + res.pAng + " / " + pAngAdj + " / " + pAngFiber + " degree");
         IJ.log("Width of the statistical significant peak: " + res.spWid + " degree");
         IJ.log("Strength of the significant peak: " + Math.round(res.bandStrength * 100.0) + "%");
         IJ.log("The 30% peak bandwidth is " + res.pWidth + " degree");
@@ -189,6 +200,9 @@ public class FIBA_Orientation implements PlugInFilter {
         final ResultsTable rt = ResultsTable.getResultsTable();
         rt.incrementCounter();
         rt.addValue("pAng_deg", res.pAng);
+        rt.addValue("pAng_adj_deg", pAngAdj);
+        rt.addValue("pAng_fiber_axis_deg", pAngFiber);
+        rt.addValue("pAng_reported_deg", pAngReported);
         rt.addValue("spWid_deg", res.spWid);
         rt.addValue("bandStrength", res.bandStrength);
         rt.addValue("pWidth_deg", res.pWidth);
@@ -241,7 +255,7 @@ public class FIBA_Orientation implements PlugInFilter {
         if (outOpts.saveSolCsv) {
             try {
                 final File outFile = new File(outputDir, baseName + "_sol.csv");
-                writeSolCsv(outFile, res, params);
+                writeSolCsv(outFile, res, params, pAngAdj, pAngFiber, pAngReported);
                 debugToFile(outOpts, outputDir, "[FIBA] saved: " + outFile.getAbsolutePath());
             } catch (Exception e) {
                 debugToFile(outOpts, outputDir, "[FIBA] WARN: failed to save SOL CSV: " + e);
@@ -283,6 +297,8 @@ public class FIBA_Orientation implements PlugInFilter {
         boolean showComposite;
         boolean showPlot;
         boolean plotApplyTukey;
+        boolean wrap90;
+        boolean reportFiberAxis;
         double polarScaleMax;
         String outputDirOverride;
         boolean debug;
@@ -325,6 +341,8 @@ public class FIBA_Orientation implements PlugInFilter {
         out.showComposite = parseBoolean(kv.get("showcomposite"), out.showComposite);
         out.showPlot = parseBoolean(kv.get("showplot"), out.showPlot);
         out.plotApplyTukey = parseBoolean(firstNonNull(kv.get("plotapplytukey"), kv.get("applytukeytoplot"), kv.get("tukeyplot")), out.plotApplyTukey);
+        out.wrap90 = parseBoolean(kv.get("wrap90"), out.wrap90);
+        out.reportFiberAxis = parseBoolean(firstNonNull(kv.get("reportfiberaxis"), kv.get("fiberaxis"), kv.get("add90forreport")), out.reportFiberAxis);
         out.polarScaleMax = parseDouble(firstNonNull(kv.get("polarscalemax"), kv.get("polarrmax"), kv.get("polarscale")), out.polarScaleMax);
         out.debug = parseBoolean(kv.get("debug"), out.debug);
 
@@ -440,7 +458,14 @@ public class FIBA_Orientation implements PlugInFilter {
         return true;
     }
 
-    private static void writeSolCsv(File outFile, FibaMatlabProcessor.Result res, FibaMatlabProcessor.Params params) throws Exception {
+    private static void writeSolCsv(
+            File outFile,
+            FibaMatlabProcessor.Result res,
+            FibaMatlabProcessor.Params params,
+            double pAngAdj,
+            double pAngFiber,
+            double pAngReported
+    ) throws Exception {
         if (outFile == null || res == null || res.sol == null || res.sol.length < 180) return;
 
         final int rminUsed = (params == null) ? -1 : Math.max(0, params.rmin);
@@ -449,7 +474,7 @@ public class FIBA_Orientation implements PlugInFilter {
                 : ((params.rmax > 0) ? params.rmax : (res.w - 1));
 
         try (FileWriter fw = new FileWriter(outFile, false)) {
-            fw.write("angle_deg,sol,meanSol,stdSol,pAng_deg,spWid_deg,bandStrength,pWidth_deg,warnPk,ang1_deg,ang2_deg,n,rmin,rmax,alpha,beta,gamma");
+            fw.write("angle_deg,sol,meanSol,stdSol,pAng_deg,pAng_adj_deg,pAng_fiber_axis_deg,pAng_reported_deg,spWid_deg,bandStrength,pWidth_deg,warnPk,ang1_deg,ang2_deg,n,rmin,rmax,alpha,beta,gamma");
             fw.write(System.lineSeparator());
             for (int ang = 0; ang < 180; ang++) {
                 fw.write(Integer.toString(ang));
@@ -461,6 +486,12 @@ public class FIBA_Orientation implements PlugInFilter {
                 fw.write(Double.toString(res.stdSol));
                 fw.write(',');
                 fw.write(Integer.toString(res.pAng));
+                fw.write(',');
+                fw.write(Double.toString(pAngAdj));
+                fw.write(',');
+                fw.write(Double.toString(pAngFiber));
+                fw.write(',');
+                fw.write(Double.toString(pAngReported));
                 fw.write(',');
                 fw.write(Integer.toString(res.spWid));
                 fw.write(',');
@@ -607,6 +638,12 @@ public class FIBA_Orientation implements PlugInFilter {
         return v;
     }
 
+    private static double normalizeAxis180(double a) {
+        double m = a % 180.0;
+        if (m < 0) m += 180.0;
+        return m;
+    }
+
     private static ImagePlus buildPlotImage(String title, FibaMatlabProcessor.Result res, double[] solForPlot) {
         final double[] x = new double[180];
         final double[] y = new double[180];
@@ -669,12 +706,12 @@ public class FIBA_Orientation implements PlugInFilter {
             g.drawLine(cx - maxR, cy, cx + maxR, cy);
             g.drawLine(cx, cy - maxR, cx, cy + maxR);
 
-            // Label orientation (matches our theta-from-vertical convention)
+            // Label orientation (matches processor convention):
+            // 0° down, 90° right, 180° up, 270° left.
             g.setColor(Color.darkGray);
-            // Standard polar convention: 0° at top, 90° at right, increasing clockwise.
-            g.drawString("0°", cx - 8, cy - maxR - 8);
+            g.drawString("0°", cx - 8, cy + maxR + 16);
             g.drawString("90°", cx + maxR + 6, cy + 4);
-            g.drawString("180°", cx - 18, cy + maxR + 16);
+            g.drawString("180°", cx - 18, cy - maxR - 8);
             g.drawString("270°", cx - maxR - 28, cy + 4);
 
             // SOL polyline
@@ -688,10 +725,11 @@ public class FIBA_Orientation implements PlugInFilter {
                 if (rr < 0) rr = 0;
                 if (rr > maxR) rr = maxR;
 
-                final double theta = Math.toRadians(deg);
-                // x is column, y is row; theta=0 points up (negative row) for standard polar plots.
+                final int mappedDeg = (deg + 90) % 360;
+                final double theta = Math.toRadians(mappedDeg);
+                // Processor convention: theta=0 follows +row (down), theta=90 follows +col (right).
                 final int x = (int) Math.round(cx + rr * Math.sin(theta));
-                final int y = (int) Math.round(cy - rr * Math.cos(theta));
+                final int y = (int) Math.round(cy + rr * Math.cos(theta));
 
                 if (prevX != Integer.MIN_VALUE) {
                     g.drawLine(prevX, prevY, x, y);

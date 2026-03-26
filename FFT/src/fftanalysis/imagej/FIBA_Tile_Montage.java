@@ -367,9 +367,11 @@ public class FIBA_Tile_Montage implements PlugInFilter {
                         savePanelTiff32(outDir, tilePrefix + (i + 1) + "_fft.tif", res.imgFDisp);
                     }
 
-                    if (res.reconMask != null) {
-                        // Frequency-domain reconstruction mask (cartesian FFT plane)
-                        savePanelJpeg(outDir, tilePrefix + (i + 1) + "_mask.jpg", normalize01ByMax(res.reconMask));
+                    // Save mask directly from reconstructed spatial structures (ImgR2 > 0),
+                    // matching the notebook-style reconstruction-threshold mask semantics.
+                    final double[][] spatialMask = buildSpatialMaskFromReconstruction(res.imgR2);
+                    if (spatialMask != null) {
+                        savePanelJpeg(outDir, tilePrefix + (i + 1) + "_mask.jpg", spatialMask);
                     }
                     // Polar-coordinate visualization of SOL with selected peak-band highlighted (Figure-4-style)
                     if (res.sol != null) {
@@ -724,7 +726,8 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         for (int deg = 0; deg < 360; deg++) {
             final int a = deg % 180;
             if (!isInBandAngle(a, a1, a2)) continue;
-            final double theta = Math.toRadians(deg);
+            final int mappedDeg = (deg + 90) % 360;
+            final double theta = Math.toRadians(mappedDeg);
             final double dirRow = Math.cos(theta);
             final double dirCol = Math.sin(theta);
             for (int r = 0; r <= (int) Math.round(R); r++) {
@@ -739,7 +742,8 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         for (int deg = 0; deg < 360; deg++) {
             final int a = deg % 180;
             final double v = sol180[a] / max;
-            final double theta = Math.toRadians(deg);
+            final int mappedDeg = (deg + 90) % 360;
+            final double theta = Math.toRadians(mappedDeg);
 
             // Image coordinates: row increases downward; theta=0 should point down.
             final double dirRow = Math.cos(theta);
@@ -766,10 +770,10 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         }
 
         // Draw band boundary rays for ang1 and ang2 (and +180)
-        drawPolarRay(out, cx, cy, R, a1, 1.0);
-        drawPolarRay(out, cx, cy, R, a2, 1.0);
-        drawPolarRay(out, cx, cy, R, a1 + 180, 1.0);
-        drawPolarRay(out, cx, cy, R, a2 + 180, 1.0);
+        drawPolarRay(out, cx, cy, R, a1 + 90, 1.0);
+        drawPolarRay(out, cx, cy, R, a2 + 90, 1.0);
+        drawPolarRay(out, cx, cy, R, a1 + 270, 1.0);
+        drawPolarRay(out, cx, cy, R, a2 + 270, 1.0);
 
         return out;
     }
@@ -1031,6 +1035,19 @@ public class FIBA_Tile_Montage implements PlugInFilter {
         final ImagePlus imp = new ImagePlus(fileName, fp);
         final File outFile = new File(outDir, fileName);
         new FileSaver(imp).saveAsTiff(outFile.getAbsolutePath());
+    }
+
+    private static double[][] buildSpatialMaskFromReconstruction(double[][] imgR2) {
+        if (imgR2 == null || imgR2.length == 0 || imgR2[0].length == 0) return null;
+        final int h = imgR2.length;
+        final int w = imgR2[0].length;
+        final double[][] mask = new double[h][w];
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                mask[y][x] = (imgR2[y][x] > 0.0) ? 1.0 : 0.0;
+            }
+        }
+        return mask;
     }
 
     private static double[][] normalize01ByMax(double[][] in) {
