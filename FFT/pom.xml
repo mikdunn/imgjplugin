@@ -137,15 +137,89 @@
         <version>3.6.1</version>
         <executions>
           <execution>
+            <id>shade-fft</id>
             <phase>package</phase>
             <goals>
               <goal>shade</goal>
             </goals>
             <configuration>
               <createDependencyReducedPom>false</createDependencyReducedPom>
-              <!-- Attach a single self-contained jar (excluding provided ImageJ) -->
               <shadedArtifactAttached>true</shadedArtifactAttached>
-              <shadedClassifierName>shaded</shadedClassifierName>
+              <shadedClassifierName>fft-shaded</shadedClassifierName>
+              <filters>
+                <filter>
+                  <artifact>${project.groupId}:${project.artifactId}</artifact>
+                  <includes>
+                    <include>fftanalysis/imagej/FibaMatlabProcessor*.class</include>
+                    <include>fftanalysis/imagej/TileUtils*.class</include>
+                    <include>fftanalysis/imagej/FIBA_Orientation*.class</include>
+                    <include>fftanalysis/imagej/FIBA_Orientation_Profile*.class</include>
+                    <include>fftanalysis/imagej/FIBA_All_FromFolder*.class</include>
+                    <include>fftanalysis/imagej/FIBA_Tile_ByContent*.class</include>
+                    <include>fftanalysis/imagej/FIBA_Tile_Montage*.class</include>
+                  </includes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>plugins.config</resource>
+                  <file>${project.basedir}/resources/plugins-fft.config</file>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+
+          <execution>
+            <id>shade-svd</id>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>svd-shaded</shadedClassifierName>
+              <filters>
+                <filter>
+                  <artifact>${project.groupId}:${project.artifactId}</artifact>
+                  <includes>
+                    <include>fftanalysis/imagej/FIBA_SVD_Process*.class</include>
+                  </includes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>plugins.config</resource>
+                  <file>${project.basedir}/resources/plugins-svd.config</file>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+
+          <execution>
+            <id>shade-wavelet</id>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <shadedArtifactAttached>true</shadedArtifactAttached>
+              <shadedClassifierName>wavelet-shaded</shadedClassifierName>
+              <filters>
+                <filter>
+                  <artifact>${project.groupId}:${project.artifactId}</artifact>
+                  <includes>
+                    <include>fftanalysis/imagej/FIBA_Wavelet_Process*.class</include>
+                  </includes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>plugins.config</resource>
+                  <file>${project.basedir}/resources/plugins-wavelet.config</file>
+                </transformer>
+              </transformers>
             </configuration>
           </execution>
         </executions>
